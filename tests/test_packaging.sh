@@ -41,6 +41,7 @@ for f in \
   "assets/templates/change/spec.md" \
   "assets/skills/spec-authoring/SKILL.md" \
   "assets/commands/propose.md" \
+  "assets/templates/kiro/product.md.tpl" \
   "assets/ci/github/agentic-sdlc.yml" \
   "assets/ci/gitlab/agentic-sdlc.yml" ; do
   check "packaged: $f" test -f "$SITE/$f"
@@ -59,7 +60,7 @@ for f in AGENTS.md .asdlc/policy.yaml \
 done
 check ".asdlc/skills is not created" test ! -e "$REPO/.asdlc/skills"
 
-check "asdlc init --tools codex copilot cursor generic" env NO_COLOR=1 "$VENV/bin/asdlc" init --tools codex copilot cursor generic --ci gitlab --force
+check "asdlc init --tools codex copilot cursor generic --sdd kiro" env NO_COLOR=1 "$VENV/bin/asdlc" init --tools codex copilot cursor generic --ci gitlab --sdd kiro --force
 for f in .codex/prompts/verify.md .github/prompts/verify.prompt.md \
          .cursor/commands/verify.md docs/agent-workflow.md .agentic-sdlc.gitlab-ci.yml ; do
   check "init produced: $f" test -e "$REPO/$f"
@@ -67,6 +68,9 @@ done
 check "init produced codex skills" test -f "$REPO/.codex/skills/spec-authoring/SKILL.md"
 check "init produced copilot skills" test -f "$REPO/.github/skills/spec-authoring/SKILL.md"
 check "init produced cursor skills" test -f "$REPO/.cursor/skills/spec-authoring/SKILL.md"
+check "init produced kiro steering" test -f "$REPO/.kiro/steering/product.md"
+check "kiro steering has no unsubstituted tokens" \
+  bash -c "! grep -q '{{PROJECT}}' '$REPO/.kiro/steering/product.md'"
 
 check "asdlc new" env NO_COLOR=1 "$VENV/bin/asdlc" new demo-change
 check "new produced spec.md" test -f "$REPO/openspec/changes/demo-change/spec.md"

@@ -29,7 +29,7 @@ from pathlib import Path
 PKG = Path(__file__).resolve().parent
 ASSETS = PKG / "assets"
 
-from asdlc import commands
+from asdlc import commands, sdd
 from asdlc.gates.checks import ALL_CHECKS, CheckResult, Context, load_policy
 
 CHANGES_DIR = "openspec/changes"
@@ -112,6 +112,12 @@ def cmd_init(args: argparse.Namespace) -> int:
     for tool in args.tools:
         n = render_adapter(root, tool, force=args.force)
         print(f"  {GREEN}+{RESET} adapter: {tool:<20} ({n} files)")
+
+    # SDD methodology
+    if args.sdd != "none":
+        sdd.install(root, args.sdd, args.tools, ASSETS,
+                    project=args.project, stack=args.stack, force=args.force)
+        print(f"  {GREEN}+{RESET} sdd: {args.sdd}")
 
     # CI
     if args.ci == "github":
@@ -263,7 +269,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         ("AGENTS.md", (root / "AGENTS.md").exists()),
         ("policy (.asdlc/policy.yaml)", (root / ".asdlc" / "policy.yaml").exists()),
         ("skills (per-tool)", any(
-            (root / p).glob("*/SKILL.md")
+            next((root / p).glob("*/SKILL.md"), None) is not None
             for p in (".claude/skills", ".codex/skills", ".github/skills", ".cursor/skills")
         )),
         ("changes dir", (root / CHANGES_DIR).exists()),
@@ -286,6 +292,21 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             print(f"  {GREEN}yes{RESET}  {tool:<12} ({path})")
     if not any_found:
         print(f"  {YELLOW}none{RESET} — run `asdlc init --tools claude-code codex ...`")
+
+    print("\nSDD methodology detected in this repo:")
+    detect_sdd = {
+        "openspec": ["openspec/config.yaml"],
+        "speckit": [".specify"],
+        "bmad": ["_bmad", "bmad-agents"],
+        "kiro": [".kiro/steering"],
+    }
+    found_sdd = {name: next((p for p in paths if (root / p).exists()), None)
+                 for name, paths in detect_sdd.items()}
+    if not any(found_sdd.values()):
+        print(f"  {YELLOW}none{RESET} — run `asdlc init --sdd openspec` (or speckit, bmad, kiro)")
+    for name, path in found_sdd.items():
+        if path:
+            print(f"  {GREEN}yes{RESET}  {name:<12} ({path})")
 
     stale = []
     for cf in sorted((root / CHANGES_DIR).glob("*/")) if (root / CHANGES_DIR).exists() else []:
@@ -313,6 +334,8 @@ def main(argv: list[str] | None = None) -> int:
     pi.add_argument("--tools", nargs="+", default=["claude-code", "codex", "generic"],
                     choices=sorted(ADAPTER_TARGETS))
     pi.add_argument("--ci", default="github", choices=["github", "gitlab", "none"])
+    pi.add_argument("--sdd", default="none", choices=["none", *sorted(sdd.SDD_TOOLS), "kiro"],
+                    help="SDD methodology to install (shells out to its own installer; kiro is templates-only)")
     pi.add_argument("--force", action="store_true")
     pi.set_defaults(func=cmd_init)
 

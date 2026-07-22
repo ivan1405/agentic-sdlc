@@ -27,6 +27,7 @@ asdlc = [
     "gates/policy.yaml",
     "gates/presets/*.yaml",
     "assets/templates/*.tpl",
+    "assets/templates/kiro/*.tpl",
     "assets/templates/*.md",
     "assets/templates/change/*.md",
     "assets/skills/**/SKILL.md",

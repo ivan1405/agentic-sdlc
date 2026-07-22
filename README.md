@@ -37,15 +37,18 @@ run whatever swarm they like against gates that do not care who wrote the code.
 ```
 src/asdlc/cli.py            asdlc: init | new | verify | doctor
 src/asdlc/commands.py       renders the one workflow definition into each tool's command format
+src/asdlc/sdd.py            shells out to OpenSpec/Spec Kit/BMAD's own installer, or writes Kiro's templates
 src/asdlc/gates/            the standard: 7 checks, zero dependencies, one policy file per client
 src/asdlc/assets/           the payload asdlc init reads/renders into a client repo:
   templates/                  artifact contract — proposal, spec, design, tasks, ADR, AGENTS.md
+  templates/kiro/             Kiro's steering docs — the one SDD methodology with no CLI to shell out to
   skills/                     5 portable SKILL.md packs, copied into every selected tool's own skills dir
   commands/                   the workflow, written once — propose/design/implement/verify/archive
   ci/                         GitHub Actions + GitLab CI pipelines
 standard/                   the docs your boss reads
 tests/                      proof that each gate blocks what it claims to, and that
-                            the wheel actually contains what the CLI reads
+                            the wheel actually contains what the CLI reads (test_sdd.sh is opt-in,
+                            needs npx/uv + network — not part of the mandatory suite)
 ```
 
 Everything under `assets/` ships **inside** the package. If a file the CLI reads
@@ -112,15 +115,27 @@ Don't standardize one globally. Pick per engagement from a menu the standard def
 The artifact layout here is OpenSpec-compatible on purpose, so you can adopt its
 CLI and slash commands for free — or drop it and keep the gates.
 
-| Client situation | Front-end |
-|---|---|
-| Brownfield, mixed tooling (the common case) | **OpenSpec** — lightweight, tool-agnostic, no lock-in |
-| GitHub/Copilot shop that wants ceremony | **Spec Kit** — `/speckit.*` are first-class Copilot commands |
-| Greenfield, regulated, wants agent roles | **BMAD** — accept the token bill |
-| AWS-committed, tolerant of IDE lock-in | **Kiro** |
-| Nothing / hostile procurement | this repo alone — `asdlc` + AGENTS.md is enough |
+| Client situation | Front-end | `asdlc init --sdd ...` |
+|---|---|---|
+| Brownfield, mixed tooling (the common case) | **OpenSpec** — lightweight, tool-agnostic, no lock-in | `openspec` |
+| GitHub/Copilot shop that wants ceremony | **Spec Kit** — `/speckit.*` are first-class Copilot commands | `speckit` |
+| Greenfield, regulated, wants agent roles | **BMAD** — accept the token bill | `bmad` |
+| AWS-committed, tolerant of IDE lock-in | **Kiro** | `kiro` |
+| Nothing / hostile procurement | this repo alone — `asdlc` + AGENTS.md is enough | `none` (default) |
 
 `asdlc verify` is identical in every row. That is the product.
+
+`--sdd` shells out to each tool's own installer (`npx` for OpenSpec/BMAD, `uv`
+for Spec Kit) instead of vendoring a copy — asdlc doesn't own these, it just
+launches them, mapping `--tools` (claude-code/codex/copilot/cursor) to
+whatever vocabulary that installer expects. `kiro` is the exception: no CLI
+exists, so `asdlc` writes its `.kiro/steering/{product,tech,structure}.md`
+templates directly. `npx`/`uv` are the client's dependency for that choice,
+not `asdlc`'s — pick `none` (the default) and nothing changes.
+
+```bash
+asdlc init --tools claude-code --sdd openspec --ci github
+```
 
 ## Rollout
 
