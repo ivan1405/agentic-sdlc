@@ -40,7 +40,7 @@ src/asdlc/commands.py       renders the one workflow definition into each tool's
 src/asdlc/gates/            the standard: 7 checks, zero dependencies, one policy file per client
 src/asdlc/assets/           the payload asdlc init reads/renders into a client repo:
   templates/                  artifact contract — proposal, spec, design, tasks, ADR, AGENTS.md
-  skills/                     5 portable SKILL.md packs (specs, tests, security, drift, regression)
+  skills/                     5 portable SKILL.md packs, copied into every selected tool's own skills dir
   commands/                   the workflow, written once — propose/design/implement/verify/archive
   ci/                         GitHub Actions + GitLab CI pipelines
 standard/                   the docs your boss reads
@@ -83,17 +83,23 @@ The only tool-specific code in this repo is `commands.py`, and the files it
 renders are **generated at `asdlc init` time**, not committed:
 
 ```
-assets/commands/*.md    ->  asdlc init  ->  .claude/commands/     (Claude Code)
-                                            .codex/prompts/       (Codex CLI)
-                                            .github/prompts/      (Copilot)
-                                            .cursor/commands/     (Cursor)
-                                            docs/agent-workflow.md (anything else)
+assets/commands/*.md     ->  asdlc init  ->  .claude/commands/     (Claude Code)
+                                             .codex/prompts/       (Codex CLI)
+                                             .github/prompts/      (Copilot)
+                                             .cursor/commands/     (Cursor)
+                                             docs/agent-workflow.md (anything else)
+
+assets/skills/*/SKILL.md ->  asdlc init  ->  .claude/skills/       (Claude Code)
+                                             .codex/skills/        (Codex CLI)
+                                             .github/skills/       (Copilot)
+                                             .cursor/skills/       (Cursor)
 ```
 
 The workflow is written once. Per-vendor differences are frontmatter keys and an
 argument token, rendered by `commands.py`. A new agent CLI next quarter costs ~8
-lines in `commands.py`'s `TOOLS` dict, not a
-new methodology.
+lines in `commands.py`'s `TOOLS` dict, not a new methodology. Skills are copied,
+not shared — pick two tools and the 5 packs land twice, once per tool's own dir,
+so each tool's native discovery works without an indirection to chase.
 
 Context uses the standards, not our inventions: **AGENTS.md** (Linux Foundation's
 Agentic AI Foundation, read by 20+ tools, 60k+ repos) and **SKILL.md** (open
