@@ -1,0 +1,11 @@
+# light — internal tools, prototypes, low blast radius.
+# The floor: you still cannot ship unspecified code, but nothing else blocks.
+profile: light
+checks:
+  spec-present: {enabled: true, required_artifacts: [proposal.md, spec.md, tasks.md]}
+  spec-lint: {enabled: true, min_scenarios_per_requirement: 1}
+  traceability: {enabled: true, require_test_reference: false}
+  spec-drift: {enabled: true, mode: warn}
+  coverage-delta: {enabled: false}
+  security-scan: {enabled: true, secrets_sweep: true}
+  human-approval: {enabled: true, min_pr_reviews: 1}

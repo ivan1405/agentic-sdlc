@@ -1,0 +1,39 @@
+# include:
+#   - local: '.agentic-sdlc.gitlab-ci.yml'
+#
+# Same gates, same CLI, different YAML dialect. That is the whole portability
+# story: the standard is `asdlc verify`, not the CI vendor.
+
+.asdlc_base:
+  image: python:3.12-slim
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq git >/dev/null
+    # TODO(engagement): pin to wherever you host the standard.
+    - pip install -q "asdlc @ git+https://gitlab.com/YOUR-ORG/agentic-sdlc@v0.2.0"
+    - git fetch origin "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME" --depth=200
+  variables:
+    ASDLC_BASE: origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME
+    GIT_DEPTH: "0"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+asdlc:spec-gate:
+  extends: .asdlc_base
+  stage: test
+  script:
+    - asdlc verify --stage spec
+
+asdlc:code-gate:
+  extends: .asdlc_base
+  stage: test
+  needs: ["asdlc:spec-gate"]
+  script:
+    - pip install -q pytest pytest-cov
+    - pytest --cov --cov-report=xml || true
+    - export ASDLC_PR_APPROVALS=$(curl -s --header "PRIVATE-TOKEN: $ASDLC_READ_TOKEN"
+        "$CI_API_V4_URL/projects/$CI_PROJECT_ID/merge_requests/$CI_MERGE_REQUEST_IID/approvals"
+        | python -c "import sys,json; print(len(json.load(sys.stdin).get('approved_by',[])))")
+    - asdlc verify --json asdlc-results.json
+  artifacts:
+    when: always
+    paths: [asdlc-results.json]

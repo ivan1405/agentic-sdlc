@@ -1,0 +1,11 @@
+# strict — regulated, safety-critical, or client-facing money paths.
+# Every gate blocks; two humans on anything sensitive; drift is a hard failure.
+profile: strict
+checks:
+  spec-present: {enabled: true, required_artifacts: [proposal.md, spec.md, design.md, tasks.md]}
+  spec-lint: {enabled: true, min_scenarios_per_requirement: 2}
+  traceability: {enabled: true, require_test_reference: true}
+  spec-drift: {enabled: true, mode: fail}
+  coverage-delta: {enabled: true, min_changed_file_coverage: 90, missing_report: fail}
+  security-scan: {enabled: true, secrets_sweep: true}
+  human-approval: {enabled: true, min_pr_reviews: 2}

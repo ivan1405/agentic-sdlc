@@ -1,0 +1,35 @@
+[project]
+name = "asdlc"
+version = "0.2.0"
+description = "Tool-agnostic gates and artifact contract for an agentic SDLC"
+requires-python = ">=3.11"
+dependencies = []          # deliberate: these gates run in whatever CI the client already has
+
+[project.scripts]
+asdlc = "asdlc.cli:main"
+
+[build-system]
+requires = ["setuptools>=64"]   # needs >=62.3 for ** globs in package-data
+build-backend = "setuptools.build_meta"
+
+# src-layout: nothing is importable unless it was installed, so a missing file
+# fails in the test suite instead of in a client's terminal. This whole file is
+# the thing that broke in 0.1.0 — the assets were not in the wheel and the source
+# tree was silently covering for it.
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["asdlc*"]
+
+# The payload. asdlc init reads/renders these into the client repo at runtime, so if it
+# is not listed here it does not exist. tests/test_packaging.sh proves it.
+[tool.setuptools.package-data]
+asdlc = [
+    "gates/policy.yaml",
+    "gates/presets/*.yaml",
+    "assets/templates/*.tpl",
+    "assets/templates/*.md",
+    "assets/templates/change/*.md",
+    "assets/skills/**/SKILL.md",
+    "assets/commands/*.md",
+    "assets/ci/**/*.yml",
+]

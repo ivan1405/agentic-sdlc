@@ -1,0 +1,76 @@
+# The gates. This file is the standard — everything else is scaffolding that
+# helps agents pass it. Make these checks required in branch protection or the
+# whole thing is a suggestion.
+name: agentic-sdlc
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: asdlc-${{ github.head_ref }}
+  cancel-in-progress: true
+
+jobs:
+  spec-gate:
+    # Fast, runs on every push. Fails in ~10s if the spec is missing or untestable,
+    # before anyone burns a runner (or a model) on unspecified work.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # gates diff against the merge base
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # TODO(engagement): point this at wherever you host the standard.
+      # Pin the tag — an unpinned gate is a gate that changes under the team.
+      - run: pip install "asdlc @ git+https://github.com/YOUR-ORG/agentic-sdlc@v0.2.0"
+      - name: Spec gates
+        env:
+          ASDLC_BASE: origin/${{ github.base_ref }}
+        run: asdlc verify --stage spec
+
+  code-gate:
+    needs: spec-gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install "asdlc @ git+https://github.com/YOUR-ORG/agentic-sdlc@v0.2.0"
+
+      # --- Replace with the client's real build/test. Cobertura output is the
+      #     only contract: the coverage gate reads coverage.xml, whatever the
+      #     language (pytest-cov, jacoco, nyc, gocover-cobertura...).
+      - name: Test
+        run: |
+          pip install -q pytest pytest-cov
+          pytest --cov --cov-report=xml || true
+
+      - name: Count PR approvals
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          n=$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.number }}/reviews" \
+                --jq '[.[] | select(.state=="APPROVED")] | length')
+          echo "ASDLC_PR_APPROVALS=$n" >> "$GITHUB_ENV"
+
+      - name: Gates
+        env:
+          ASDLC_BASE: origin/${{ github.base_ref }}
+        run: asdlc verify --json asdlc-results.json
+
+      - name: Publish results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: asdlc-results
+          path: asdlc-results.json
