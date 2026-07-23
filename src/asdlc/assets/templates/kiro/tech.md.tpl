@@ -13,5 +13,5 @@ model favours, not what this repo runs.
 <!-- runtime versions, infra limits, things the agent must not swap out -->
 
 ## Tooling
-<!-- build, test, lint, deploy commands — same ones AGENTS.md lists, if this
+<!-- build, test, lint, deploy commands — same ones {{CONTEXT_FILE}} lists, if this
      repo also has one; Kiro and other tools should not disagree -->

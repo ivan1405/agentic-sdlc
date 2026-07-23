@@ -54,22 +54,25 @@ def parse(path: Path) -> tuple[str, str, str]:
     return desc, hint, body
 
 
-def _fill_dirs(text: str, changes_dir: str, specs_dir: str) -> str:
-    return text.replace("%%CHANGES_DIR%%", changes_dir).replace("%%SPECS_DIR%%", specs_dir)
+def _fill_dirs(text: str, changes_dir: str, specs_dir: str, context_file: str) -> str:
+    return (text.replace("%%CHANGES_DIR%%", changes_dir)
+                .replace("%%SPECS_DIR%%", specs_dir)
+                .replace("%%CONTEXT_FILE%%", context_file))
 
 
-def render_tool_files(tool: str, shared_dir: Path, changes_dir: str, specs_dir: str) -> dict[str, str]:
+def render_tool_files(tool: str, shared_dir: Path, changes_dir: str, specs_dir: str,
+                       context_file: str) -> dict[str, str]:
     """Render {filename: content} for every workflow step, for one tool."""
     fname_fmt, fm, argtok = TOOLS[tool]
     files: dict[str, str] = {}
     for name in ORDER:
         desc, hint, body = parse(shared_dir / f"{name}.md")
         content = fm(desc, hint).replace("{name}", name) + body.replace("%%ARG%%", argtok)
-        files[fname_fmt.format(name=name)] = _fill_dirs(content, changes_dir, specs_dir)
+        files[fname_fmt.format(name=name)] = _fill_dirs(content, changes_dir, specs_dir, context_file)
     return files
 
 
-def render_generic(shared_dir: Path, changes_dir: str, specs_dir: str) -> str:
+def render_generic(shared_dir: Path, changes_dir: str, specs_dir: str, context_file: str) -> str:
     """Render the single concatenated file for tools with no slash commands."""
     parts = [
         "# Agent workflow (tool-agnostic)\n",
@@ -82,4 +85,4 @@ def render_generic(shared_dir: Path, changes_dir: str, specs_dir: str) -> str:
             f"\n---\n\n## {name} — {desc}\n\nUsage: `{name} {hint}`\n\n"
             + body.replace("%%ARG%%", "<your input here>")
         )
-    return _fill_dirs("\n".join(parts), changes_dir, specs_dir)
+    return _fill_dirs("\n".join(parts), changes_dir, specs_dir, context_file)

@@ -2,12 +2,17 @@
 %%HINT: <change-id>%%
 Implement: %%ARG%%
 
+Best suited to **frontend-dev** or **backend-dev**, whichever matches the
+task, if your tool supports subagent delegation. A change that touches both
+surfaces splits by task, not by agent doing both — delegate each task to
+whichever one actually owns that surface.
+
 Preconditions — verify these yourself and refuse if unmet:
 - `design.md` exists and carries an `Approved-by:` line.
 - `asdlc verify --stage spec` passes.
 
 Then:
-1. Read `AGENTS.md`, `proposal.md`, `spec.md`, `design.md`, `tasks.md`. All of them.
+1. Read `%%CONTEXT_FILE%%`, `proposal.md`, `spec.md`, `design.md`, `tasks.md`. All of them.
 2. Work **one task at a time**, in order. For each: write the test first (name it
    after the REQ- ID it covers), then the code, then run the suite, then tick the
    box in `tasks.md`. One task, one commit.

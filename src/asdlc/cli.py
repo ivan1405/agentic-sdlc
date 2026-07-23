@@ -28,7 +28,7 @@ from pathlib import Path
 PKG = Path(__file__).resolve().parent
 ASSETS = PKG / "assets"
 
-from asdlc import commands, sdd
+from asdlc import agents, commands, sdd
 from asdlc.gates.checks import ALL_CHECKS, CheckResult, Context, load_policy
 
 ARTIFACTS = ["proposal.md", "spec.md", "design.md", "tasks.md"]
@@ -208,6 +208,7 @@ def cmd_init(args: argparse.Namespace) -> int:
     # CLAUDE.md — no reason to keep a hub file nothing else reads.
     has_native_reader = any(t in NATIVE_AGENTS_MD_TOOLS for t in args.tools)
     inline_into_claude = "claude-code" in args.tools and not has_native_reader
+    context_file = "CLAUDE.md" if inline_into_claude else "AGENTS.md"
 
     context_tpl = (ASSETS / "templates" / "AGENTS.md.tpl").read_text()
     context_tpl = context_tpl.replace("{{PROJECT}}", args.project or root.name)
@@ -215,8 +216,8 @@ def cmd_init(args: argparse.Namespace) -> int:
     context_tpl = context_tpl.replace("{{CHANGES_DIR}}", changes_dir).replace("{{SPECS_DIR}}", specs_dir)
     context_tpl = context_tpl.replace("{{WORKFLOW_NOTE}}", _workflow_note(args.sdd))
 
+    agents = root / "AGENTS.md"
     if not inline_into_claude:
-        agents = root / "AGENTS.md"
         if not agents.exists() or args.force:
             note = ("It is read natively by Codex, Cursor, Copilot, Gemini CLI, Aider, "
                      "Zed, Windsurf and others. Claude Code never reads this file directly "
@@ -225,6 +226,16 @@ def cmd_init(args: argparse.Namespace) -> int:
                      "either way.")
             agents.write_text(context_tpl.replace("{{FILE_NOTE}}", note))
             print(f"  {GREEN}+{RESET} AGENTS.md                     (fill in the TODOs — this is the context contract)")
+    elif agents.exists():
+        # A previous `--tools` combo needed the AGENTS.md hub; this one
+        # doesn't. Leaving it behind means it silently goes stale forever —
+        # nothing would ever write to it again.
+        if args.force:
+            agents.unlink()
+            print(f"  {RED}-{RESET} AGENTS.md                     (removed — content is now inlined into CLAUDE.md instead)")
+        else:
+            print(f"  {YELLOW}!{RESET} AGENTS.md still exists but nothing reads it now that claude-code is "
+                  f"alone — re-run with --force to remove it")
 
     if "claude-code" in args.tools:
         claude_md = root / "CLAUDE.md"
@@ -241,14 +252,15 @@ def cmd_init(args: argparse.Namespace) -> int:
 
     # adapters
     for tool in args.tools:
-        n = render_adapter(root, tool, changes_dir, specs_dir, force=args.force)
+        n = render_adapter(root, tool, changes_dir, specs_dir, context_file, force=args.force)
         print(f"  {GREEN}+{RESET} adapter: {tool:<20} ({n} files)")
 
     # SDD methodology
     if args.sdd != "none":
         sdd.install(root, args.sdd, args.tools, ASSETS,
                     project=args.project, stack=args.stack,
-                    changes_dir=changes_dir, specs_dir=specs_dir, force=args.force)
+                    changes_dir=changes_dir, specs_dir=specs_dir,
+                    context_file=context_file, force=args.force)
         print(f"  {GREEN}+{RESET} sdd: {args.sdd}")
 
     # CI
@@ -267,7 +279,6 @@ def cmd_init(args: argparse.Namespace) -> int:
     effective_sdd = _read_sdd_choice(root)
     next_step = NEXT_STEP_HINT[effective_sdd]
     gate_note = "" if effective_sdd == "none" else " (asdlc's own spec gates are disabled for this choice — see .asdlc/policy.yaml)"
-    context_file = "CLAUDE.md" if inline_into_claude else "AGENTS.md"
     print(
         f"\nNext: run `/onboard` in your agent — a one-time codebase skim that "
         f"fills in {context_file} with real facts instead of TODOs, so later "
@@ -281,18 +292,24 @@ def cmd_init(args: argparse.Namespace) -> int:
 # adapters — the ONLY tool-specific code in the whole standard
 # --------------------------------------------------------------------------- #
 ADAPTER_TARGETS = {
-    "claude-code": [(".claude/commands", "commands"), (".claude/skills", "__skills__")],
-    "codex": [(".codex/prompts", "commands"), (".codex/skills", "__skills__")],
-    "copilot": [(".github/prompts", "commands"), (".github/skills", "__skills__")],
-    "cursor": [(".cursor/commands", "commands"), (".cursor/skills", "__skills__")],
+    "claude-code": [(".claude/commands", "commands"), (".claude/skills", "__skills__"),
+                    (".claude/agents", "agents")],
+    "codex": [(".codex/prompts", "commands"), (".codex/skills", "__skills__"),
+              (".codex/agents", "agents")],
+    "copilot": [(".github/prompts", "commands"), (".github/skills", "__skills__"),
+                (".github/agents", "agents")],
+    "cursor": [(".cursor/commands", "commands"), (".cursor/skills", "__skills__"),
+               (".cursor/agents", "agents")],
     "generic": [("docs/agent-workflow.md", "__single__")],
 }
 
 
-def render_adapter(root: Path, tool: str, changes_dir: str, specs_dir: str, force: bool = False) -> int:
+def render_adapter(root: Path, tool: str, changes_dir: str, specs_dir: str,
+                    context_file: str, force: bool = False) -> int:
     if tool not in ADAPTER_TARGETS:
         raise SystemExit(f"unknown tool '{tool}'. known: {', '.join(sorted(ADAPTER_TARGETS))}")
     shared = ASSETS / "commands"
+    agents_shared = ASSETS / "agents"
     count = 0
     for rel, kind in ADAPTER_TARGETS[tool]:
         dst = root / rel
@@ -306,13 +323,23 @@ def render_adapter(root: Path, tool: str, changes_dir: str, specs_dir: str, forc
                     shutil.rmtree(target)
                 shutil.copytree(skill, target)
                 count += 1
+        elif kind == "agents":
+            dst.mkdir(parents=True, exist_ok=True)
+            for name, content in sorted(agents.render_tool_files(tool, agents_shared).items()):
+                target = dst / name
+                if target.exists() and not force:
+                    continue
+                target.write_text(content)
+                count += 1
         elif kind == "__single__":
             dst.parent.mkdir(parents=True, exist_ok=True)
-            dst.write_text(commands.render_generic(shared, changes_dir, specs_dir))
+            doc = (commands.render_generic(shared, changes_dir, specs_dir, context_file)
+                   + "\n\n" + agents.render_generic(agents_shared))
+            dst.write_text(doc)
             count += 1
         else:
             dst.mkdir(parents=True, exist_ok=True)
-            for name, content in sorted(commands.render_tool_files(tool, shared, changes_dir, specs_dir).items()):
+            for name, content in sorted(commands.render_tool_files(tool, shared, changes_dir, specs_dir, context_file).items()):
                 target = dst / name
                 if target.exists() and not force:
                     continue

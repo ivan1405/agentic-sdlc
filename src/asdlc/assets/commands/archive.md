@@ -2,7 +2,10 @@
 %%HINT: <change-id>%%
 Archive the merged change: %%ARG%%
 
-Use the **drift-reconciliation** skill. Confirm the change is merged to main first.
+Use the **drift-reconciliation** skill. Confirm the change is merged to main
+first. Best suited to **solutions-architect** if your tool supports subagent
+delegation — folding a delta into the living spec is a spec-accuracy task,
+the same kind of judgment call it already makes when drafting one.
 
 1. Fold the delta into `%%SPECS_DIR%%/<capability>/spec.md`:
    ADDED → append (keep IDs) · MODIFIED → replace in place (keep IDs) → REMOVED → delete and record why.

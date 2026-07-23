@@ -37,6 +37,7 @@ run whatever swarm they like against gates that do not care who wrote the code.
 ```
 src/asdlc/cli.py            asdlc: init | new | verify | doctor
 src/asdlc/commands.py       renders the one workflow definition into each tool's command format
+src/asdlc/agents.py         renders the 6 role definitions into each tool's native agent format
 src/asdlc/sdd.py            shells out to OpenSpec/Spec Kit/BMAD's own installer, or writes Kiro's templates
 src/asdlc/gates/            the standard: 7 checks, zero dependencies, one policy file per client
 src/asdlc/assets/           the payload asdlc init reads/renders into a client repo:
@@ -44,6 +45,9 @@ src/asdlc/assets/           the payload asdlc init reads/renders into a client r
   templates/kiro/             Kiro's steering docs — the one SDD methodology with no CLI to shell out to
   skills/                     5 portable SKILL.md packs, copied into every selected tool's own skills dir
   commands/                   the workflow, written once — onboard/propose/design/implement/verify/archive
+  agents/                     6 role definitions — technical-leader, solutions-architect, frontend-dev,
+                               backend-dev, qa-engineer, security-engineer — written once, rendered per tool
+                               (Codex's is TOML, not Markdown)
   ci/                         GitHub Actions + GitLab CI pipelines
 standard/                   the docs your boss reads
 tests/                      proof that each gate blocks what it claims to, and that
@@ -82,8 +86,8 @@ precisely because every dev box has PyYAML and would otherwise hide it.
 
 ## Portability
 
-The only tool-specific code in this repo is `commands.py`, and the files it
-renders are **generated at `asdlc init` time**, not committed:
+The only tool-specific code in this repo is `commands.py` and `agents.py`, and
+the files they render are **generated at `asdlc init` time**, not committed:
 
 ```
 assets/commands/*.md     ->  asdlc init  ->  .claude/commands/     (Claude Code)
@@ -96,7 +100,24 @@ assets/skills/*/SKILL.md ->  asdlc init  ->  .claude/skills/       (Claude Code)
                                              .codex/skills/        (Codex CLI)
                                              .github/skills/       (Copilot)
                                              .cursor/skills/       (Cursor)
+
+assets/agents/*.md       ->  asdlc init  ->  .claude/agents/       (Claude Code, .md)
+                                             .codex/agents/        (Codex CLI, .toml — not Markdown)
+                                             .github/agents/       (Copilot, .agent.md)
+                                             .cursor/agents/       (Cursor, .md)
 ```
+
+Agents are the one place formatting differences become a real format
+difference, not just frontmatter: Codex's native agent file is TOML
+(`developer_instructions` carries the role's system prompt), so `agents.py`
+gives it its own serializer instead of the Markdown-with-frontmatter template
+the other three share. Tool/model restrictions are added only where the exact
+schema was confirmed against real examples: Claude Code gets `tools:`
+(built-in names), `model: inherit`, and `color:`; Cursor gets `model: inherit`
+and `readonly: true` on the two review-only roles (no per-tool allow-list
+exists there). Copilot's `tools:` uses a different, unverified vocabulary,
+and Codex has no per-tool list at all — both are left without extra fields
+rather than guess.
 
 The workflow is written once. Per-vendor differences are frontmatter keys and an
 argument token, rendered by `commands.py`. A new agent CLI next quarter costs ~8

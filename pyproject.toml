@@ -32,5 +32,6 @@ asdlc = [
     "assets/templates/change/*.md",
     "assets/skills/**/SKILL.md",
     "assets/commands/*.md",
+    "assets/agents/*.md",
     "assets/ci/**/*.yml",
 ]

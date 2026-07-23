@@ -116,7 +116,7 @@ def _install_bmad(root: Path, tools: list[str]) -> None:
 
 
 def _install_kiro(root: Path, kiro_templates: Path, project: str, stack: str,
-                   changes_dir: str, specs_dir: str, force: bool) -> None:
+                   changes_dir: str, specs_dir: str, context_file: str, force: bool) -> None:
     dst = root / ".kiro" / "steering"
     dst.mkdir(parents=True, exist_ok=True)
     for tpl in sorted(kiro_templates.glob("*.md.tpl")):
@@ -127,21 +127,22 @@ def _install_kiro(root: Path, kiro_templates: Path, project: str, stack: str,
                  .replace("{{PROJECT}}", project)
                  .replace("{{STACK}}", stack)
                  .replace("{{CHANGES_DIR}}", changes_dir)
-                 .replace("{{SPECS_DIR}}", specs_dir))
+                 .replace("{{SPECS_DIR}}", specs_dir)
+                 .replace("{{CONTEXT_FILE}}", context_file))
         target.write_text(text)
 
 
 def install(root: Path, choice: str, tools: list[str], assets: Path,
             project: str = "", stack: str = "",
             changes_dir: str = "openspec/changes", specs_dir: str = "openspec/specs",
-            force: bool = False) -> None:
+            context_file: str = "AGENTS.md", force: bool = False) -> None:
     if choice == "none":
         return
     if choice == "kiro":
         _install_kiro(root, assets / "templates" / "kiro",
                       project or root.name,
                       stack or "TODO: languages, frameworks, versions",
-                      changes_dir, specs_dir, force)
+                      changes_dir, specs_dir, context_file, force)
         return
     if choice == "openspec":
         _install_openspec(root, tools)
