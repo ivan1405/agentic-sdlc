@@ -31,11 +31,7 @@ asdlc verify               # the gates. If this fails, the work is not done.
 
 ## The workflow you must follow
 This repo uses a spec-first, gated workflow. Do not improvise around it.
-The paths below are asdlc's own artifact contract (see `.asdlc/policy.yaml`'s
-`artifact_dirs`) — its own thing, independent of whatever SDD front-end (if
-any) this repo also has installed (OpenSpec, Spec Kit, BMAD, Kiro). If one is
-installed, it runs alongside this workflow, not instead of it; `asdlc verify`
-only ever checks the paths below.
+{{WORKFLOW_NOTE}}
 
 1. **No code without a change folder.** Every change lives in
    `{{CHANGES_DIR}}/<change-id>/` with proposal.md, spec.md, design.md, tasks.md.

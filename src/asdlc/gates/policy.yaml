@@ -13,7 +13,7 @@ profile: balanced   # strict | balanced | light  (documentation only; see preset
 # tool — knows what's already configured without repeating --sdd, and so
 # `asdlc doctor`/the printed next-step hint stay accurate. Edit by hand if
 # you switch front-ends outside of `asdlc init --force`.
-sdd: %%SDD_CHOICE%%
+sdd: "%%SDD_CHOICE%%"
 
 # Where asdlc's own artifact contract lives. Set once by `asdlc init` based on
 # --sdd: openspec/changes+specs when OpenSpec is the front-end (or none is),
@@ -21,8 +21,8 @@ sdd: %%SDD_CHOICE%%
 # when OpenSpec isn't actually installed. Edit by hand if you move it later;
 # every gate reads these two values, not a hardcoded path.
 artifact_dirs:
-  changes: %%CHANGES_DIR%%
-  specs: %%SPECS_DIR%%
+  changes: "%%CHANGES_DIR%%"
+  specs: "%%SPECS_DIR%%"
 
 # What counts as production code. Everything else is free to change without spec.
 source_globs:

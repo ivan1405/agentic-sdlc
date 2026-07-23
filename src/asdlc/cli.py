@@ -59,18 +59,45 @@ NEXT_STEP_HINT = {
     "kiro": "open Kiro's Spec mode for your first feature",
 }
 
+SDD_DISPLAY_NAME = {"openspec": "OpenSpec", "speckit": "Spec Kit", "bmad": "BMAD", "kiro": "Kiro"}
+
+
+def _workflow_note(sdd_choice: str) -> str:
+    """AGENTS.md's workflow section shouldn't namedrop OpenSpec/Spec Kit/BMAD/
+    Kiro when none of them are actually installed — that's just noise for the
+    common --sdd none case. Name the specific tool only when one is real."""
+    if sdd_choice == "none":
+        return ("The paths below are asdlc's own artifact contract (see "
+                 "`.asdlc/policy.yaml`'s `artifact_dirs`) — `asdlc verify` "
+                 "checks exactly these paths.")
+    name = SDD_DISPLAY_NAME[sdd_choice]
+    return (f"The paths below are asdlc's own artifact contract (see "
+            f"`.asdlc/policy.yaml`'s `artifact_dirs`) — its own thing, "
+            f"independent of {name}, which this repo also has installed. "
+            f"{name} runs alongside this workflow, not instead of it; "
+            f"`asdlc verify` only ever checks the paths below.")
+
+
+def _unresolved(value: str | None) -> bool:
+    """True for an unsubstituted %%TOKEN%% — i.e. `asdlc init` was never run,
+    so we're reading the raw packaged template, not a real .asdlc/policy.yaml."""
+    return value is None or (value.startswith("%%") and value.endswith("%%"))
+
 
 def _read_artifact_dirs(root: Path) -> tuple[str, str]:
     policy = load_policy(root, PKG)
     dirs = policy.get("artifact_dirs") or {}
+    changes = dirs.get("changes")
+    specs = dirs.get("specs")
     return (
-        dirs.get("changes", "openspec/changes"),
-        dirs.get("specs", "openspec/specs"),
+        "openspec/changes" if _unresolved(changes) else changes,
+        "openspec/specs" if _unresolved(specs) else specs,
     )
 
 
 def _read_sdd_choice(root: Path) -> str:
-    return load_policy(root, PKG).get("sdd") or "none"
+    choice = load_policy(root, PKG).get("sdd")
+    return "none" if _unresolved(choice) else choice
 
 
 # Checks that can only verify asdlc's own proposal/spec/design/tasks.md
@@ -181,6 +208,7 @@ def cmd_init(args: argparse.Namespace) -> int:
     context_tpl = context_tpl.replace("{{PROJECT}}", args.project or root.name)
     context_tpl = context_tpl.replace("{{STACK}}", args.stack or "TODO: languages, frameworks, versions")
     context_tpl = context_tpl.replace("{{CHANGES_DIR}}", changes_dir).replace("{{SPECS_DIR}}", specs_dir)
+    context_tpl = context_tpl.replace("{{WORKFLOW_NOTE}}", _workflow_note(args.sdd))
 
     if not inline_into_claude:
         agents = root / "AGENTS.md"
@@ -430,14 +458,110 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
     return 0
 
 
+# --------------------------------------------------------------------------- #
+# setup wizard — only for `asdlc init` with zero flags, at a real terminal.
+# Anything scripted (CI, tests, `--tools ...`) always goes through argparse
+# untouched below; this never changes what a flag-driven invocation does.
+# --------------------------------------------------------------------------- #
+# Built from centered pieces, not hand-counted spaces — a hardcoded ASCII-art
+# string is one string-length change away from misaligned borders.
+_ASDLC_LETTERS = {
+    "A": [" █████╗ ", "██╔══██╗", "███████║", "██╔══██║", "██║  ██║", "╚═╝  ╚═╝"],
+    "S": ["███████╗", "██╔════╝", "███████╗", "╚════██║", "███████║", "╚══════╝"],
+    "D": ["██████╗ ", "██╔══██╗", "██║  ██║", "██║  ██║", "██████╔╝", "╚═════╝ "],
+    "L": ["██╗     ", "██║     ", "██║     ", "██║     ", "███████╗", "╚══════╝"],
+    "C": [" ██████╗", "██╔════╝", "██║     ", "██║     ", "╚██████╗", " ╚═════╝"],
+}
+
+
+def _banner() -> str:
+    art_rows = ["".join(_ASDLC_LETTERS[ch][r] for ch in "ASDLC") for r in range(6)]
+    tagline = "Agentic SDLC — setup wizard"
+    width = max(len(r) for r in art_rows) + 4
+    top, bottom = "╔" + "═" * width + "╗", "╚" + "═" * width + "╝"
+    blank = f"║{' ' * width}║"
+    lines = [top, blank, *(f"║{r.center(width)}║" for r in art_rows),
+              blank, f"║{tagline.center(width)}║", blank, bottom]
+
+    # Colored text throws off .center()'s length math (it counts the escape
+    # codes as characters) — pad against the PLAIN text's length first, then
+    # wrap the colored pieces in place so the visible layout stays correct.
+    plain_credit = "●● built by Parser"
+    pad = len(top) - len(plain_credit)
+    credit = " " * pad + f"{RED}●●{RESET} {DIM}built by{RESET} {RED}Parser{RESET}"
+    lines.append(credit)
+    return "\n".join(lines)
+
+
+def _prompt(question: str, default: str = "") -> str:
+    suffix = f" [{default}]" if default else ""
+    return input(f"{question}{suffix}: ").strip() or default
+
+
+def _prompt_choice(question: str, options: list[str], default: str) -> str:
+    print(f"\n{question}")
+    for i, opt in enumerate(options, 1):
+        print(f"  {i}. {opt}{'  (default)' if opt == default else ''}")
+    ans = input(f"choice [1-{len(options)}, default {default}]: ").strip()
+    if not ans:
+        return default
+    if ans.isdigit() and 1 <= int(ans) <= len(options):
+        return options[int(ans) - 1]
+    if ans in options:
+        return ans
+    print(f"  {YELLOW}unrecognized — using default: {default}{RESET}")
+    return default
+
+
+def _prompt_multi(question: str, options: list[str], default: list[str]) -> list[str]:
+    print(f"\n{question}")
+    for i, opt in enumerate(options, 1):
+        print(f"  {i}. {opt}{'  (default)' if opt in default else ''}")
+    ans = input(f"choices, comma-separated [default: {','.join(default)}]: ").strip()
+    if not ans:
+        return default
+    picked = []
+    for tok in (t.strip() for t in ans.split(",")):
+        if tok.isdigit() and 1 <= int(tok) <= len(options):
+            picked.append(options[int(tok) - 1])
+        elif tok in options:
+            picked.append(tok)
+    return picked or default
+
+
+def _run_wizard(root: Path) -> argparse.Namespace:
+    print(f"{GREEN}{_banner()}{RESET}")
+    print()
+    print("No flags given — let's set this repo up interactively.")
+    print("(Prefer scripting this? `asdlc init --help` for the flags.)\n")
+    project = _prompt("Project name", root.name)
+    stack = _prompt("Stack (languages/frameworks — blank is fine)")
+    tools = _prompt_multi("Which agent tool(s) does this repo use?",
+                           sorted(ADAPTER_TARGETS), ["claude-code"])
+    ci = _prompt_choice("CI provider?", ["github", "gitlab", "none"], "github")
+    sdd_choice = _prompt_choice(
+        "SDD front-end? Installs the real tool via its own installer (npx/uv) "
+        "and disables asdlc's own spec gates for it — 'none' keeps asdlc's own "
+        "gates on and installs nothing extra.",
+        ["none", *sorted(sdd.SDD_TOOLS), "kiro"], "none",
+    )
+    print()
+    return argparse.Namespace(project=project or None, stack=stack or None,
+                               tools=tools, ci=ci, sdd=sdd_choice, force=False)
+
+
 def main(argv: list[str] | None = None) -> int:
+    raw = sys.argv[1:] if argv is None else argv
+    if raw == ["init"] and sys.stdin.isatty():
+        return cmd_init(_run_wizard(repo_root()))
+
     p = argparse.ArgumentParser(prog="asdlc", description=__doc__.split("\n")[0])
     sub = p.add_subparsers(dest="cmd", required=True)
 
     pi = sub.add_parser("init", help="scaffold the standard into a repo")
     pi.add_argument("--project")
     pi.add_argument("--stack")
-    pi.add_argument("--tools", nargs="+", default=["claude-code", "codex", "generic"],
+    pi.add_argument("--tools", nargs="+", default=["claude-code"],
                     choices=sorted(ADAPTER_TARGETS))
     pi.add_argument("--ci", default="github", choices=["github", "gitlab", "none"])
     pi.add_argument("--sdd", default="none", choices=["none", *sorted(sdd.SDD_TOOLS), "kiro"],

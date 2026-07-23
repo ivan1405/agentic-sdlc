@@ -61,9 +61,11 @@ done
 check "claude-code alone: no AGENTS.md hub (nothing else reads it)" test ! -e "$REPO/AGENTS.md"
 check "claude-code alone: CLAUDE.md has real content, not an import" \
   grep -q "workflow you must follow" "$REPO/CLAUDE.md"
+check "default --sdd: workflow note doesn't namedrop unused front-ends" \
+  bash -c "! grep -qE 'OpenSpec|Spec Kit|BMAD|Kiro' '$REPO/CLAUDE.md'"
 check ".asdlc/skills is not created" test ! -e "$REPO/.asdlc/skills"
 check "default --sdd keeps openspec/changes in policy.yaml" \
-  grep -q "changes: openspec/changes" "$REPO/.asdlc/policy.yaml"
+  grep -q "changes: \"openspec/changes\"" "$REPO/.asdlc/policy.yaml"
 check "default --sdd: propose.md references openspec/, not .asdlc/changes" \
   grep -q "openspec/changes" "$REPO/.claude/commands/propose.md"
 check "default --sdd keeps spec-present enabled" \
@@ -77,6 +79,8 @@ done
 check "claude-code + codex: AGENTS.md hub created (codex reads it natively)" test -f "$REPO/AGENTS.md"
 check "claude-code + codex: CLAUDE.md is a pointer, not inlined" \
   grep -q "@AGENTS.md" "$REPO/CLAUDE.md"
+check "--sdd kiro: workflow note names Kiro specifically" \
+  grep -q "independent of Kiro" "$REPO/AGENTS.md"
 check "init produced codex skills" test -f "$REPO/.codex/skills/spec-authoring/SKILL.md"
 check "init produced copilot skills" test -f "$REPO/.github/skills/spec-authoring/SKILL.md"
 check "init produced cursor skills" test -f "$REPO/.cursor/skills/spec-authoring/SKILL.md"
@@ -84,7 +88,7 @@ check "init produced kiro steering" test -f "$REPO/.kiro/steering/product.md"
 check "kiro steering has no unsubstituted tokens" \
   bash -c "! grep -q '{{PROJECT}}' '$REPO/.kiro/steering/product.md'"
 check "--sdd kiro switches policy.yaml to .asdlc/changes" \
-  grep -q "changes: \.asdlc/changes" "$REPO/.asdlc/policy.yaml"
+  grep -q "changes: \"\.asdlc/changes\"" "$REPO/.asdlc/policy.yaml"
 check "--sdd kiro: propose.md references .asdlc/, not openspec/" \
   grep -q "\.asdlc/changes" "$REPO/.codex/prompts/propose.md"
 check "--sdd kiro: kiro steering references .asdlc/changes" \
