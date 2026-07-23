@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-ORDER = ["propose", "design", "implement", "verify", "archive"]
+ORDER = ["onboard", "propose", "design", "implement", "verify", "archive"]
 
 # name -> (filename fmt, frontmatter builder, argument token)
 TOOLS = {

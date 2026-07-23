@@ -48,8 +48,10 @@ This repo uses a spec-first, gated workflow. Do not improvise around it.
    changes. Stale specs are worse than no specs — you will read them next time.
 
 ## Conventions
-- <!-- naming, error handling, logging, dependency injection, etc. -->
+- <!-- 2-4 bullets, load-bearing only: naming, error handling, logging, etc. -->
 - <!-- be specific: "use X, never Y" beats "prefer X" -->
+- <!-- deeper architecture, module map, rationale: docs/architecture.md, if
+     /onboard wrote one for this repo. Not every repo needs it — see /onboard. -->
 
 ## Do not touch
 - `<!-- generated code, vendored dirs, legacy modules under freeze -->`

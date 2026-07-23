@@ -61,6 +61,12 @@ NEXT_STEP_HINT = {
 
 SDD_DISPLAY_NAME = {"openspec": "OpenSpec", "speckit": "Spec Kit", "bmad": "BMAD", "kiro": "Kiro"}
 
+# Tools that read AGENTS.md natively. claude-code doesn't — it only reads
+# CLAUDE.md — so whether a repo's real context file is AGENTS.md or CLAUDE.md
+# depends on which OTHER tools are also present. Shared by cmd_init (decides
+# which to write) and cmd_doctor (decides which to check for).
+NATIVE_AGENTS_MD_TOOLS = {"codex", "cursor", "copilot"}
+
 
 def _workflow_note(sdd_choice: str) -> str:
     """AGENTS.md's workflow section shouldn't namedrop OpenSpec/Spec Kit/BMAD/
@@ -200,7 +206,6 @@ def cmd_init(args: argparse.Namespace) -> int:
     # two copies. If claude-code is the only tool that needs this content,
     # skip AGENTS.md entirely and write the real content straight into
     # CLAUDE.md — no reason to keep a hub file nothing else reads.
-    NATIVE_AGENTS_MD_TOOLS = {"codex", "cursor", "copilot"}
     has_native_reader = any(t in NATIVE_AGENTS_MD_TOOLS for t in args.tools)
     inline_into_claude = "claude-code" in args.tools and not has_native_reader
 
@@ -263,7 +268,12 @@ def cmd_init(args: argparse.Namespace) -> int:
     next_step = NEXT_STEP_HINT[effective_sdd]
     gate_note = "" if effective_sdd == "none" else " (asdlc's own spec gates are disabled for this choice — see .asdlc/policy.yaml)"
     context_file = "CLAUDE.md" if inline_into_claude else "AGENTS.md"
-    print(f"\nNext: fill in {context_file}, tune .asdlc/policy.yaml, then {next_step}.{gate_note}")
+    print(
+        f"\nNext: run `/onboard` in your agent — a one-time codebase skim that "
+        f"fills in {context_file} with real facts instead of TODOs, so later "
+        f"commands read that instead of re-scanning the repo every time. "
+        f"Then tune .asdlc/policy.yaml, and {next_step}.{gate_note}"
+    )
     return 0
 
 
@@ -399,8 +409,20 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
     root = repo_root()
     print(f"repo: {root}\n")
     changes_dir, specs_dir = _read_artifact_dirs(root)
+
+    detect = {
+        "claude-code": ".claude/commands",
+        "codex": ".codex/prompts",
+        "copilot": ".github/prompts",
+        "cursor": ".cursor/commands",
+    }
+    detected_tools = [tool for tool, path in detect.items() if (root / path).exists()]
+    has_native_reader = any(t in NATIVE_AGENTS_MD_TOOLS for t in detected_tools)
+    inline_into_claude = "claude-code" in detected_tools and not has_native_reader
+    context_file = "CLAUDE.md" if inline_into_claude else "AGENTS.md"
+
     checks = [
-        ("AGENTS.md", (root / "AGENTS.md").exists()),
+        (context_file, (root / context_file).exists()),
         ("policy (.asdlc/policy.yaml)", (root / ".asdlc" / "policy.yaml").exists()),
         ("skills (per-tool)", any(
             next((root / p).glob("*/SKILL.md"), None) is not None
@@ -413,18 +435,10 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
         print(f"  {GREEN + 'yes' + RESET if ok else RED + 'no ' + RESET}  {name}")
 
     print("\nagent tooling detected in this repo:")
-    detect = {
-        "claude-code": ".claude/commands",
-        "codex": ".codex/prompts",
-        "copilot": ".github/prompts",
-        "cursor": ".cursor/commands",
-    }
-    any_found = False
-    for tool, path in detect.items():
-        if (root / path).exists():
-            any_found = True
-            print(f"  {GREEN}yes{RESET}  {tool:<12} ({path})")
-    if not any_found:
+    if detected_tools:
+        for tool in detected_tools:
+            print(f"  {GREEN}yes{RESET}  {tool:<12} ({detect[tool]})")
+    else:
         print(f"  {YELLOW}none{RESET} — run `asdlc init --tools claude-code codex ...`")
 
     print("\nSDD methodology detected in this repo:")

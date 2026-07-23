@@ -43,7 +43,7 @@ src/asdlc/assets/           the payload asdlc init reads/renders into a client r
   templates/                  artifact contract — proposal, spec, design, tasks, ADR, AGENTS.md
   templates/kiro/             Kiro's steering docs — the one SDD methodology with no CLI to shell out to
   skills/                     5 portable SKILL.md packs, copied into every selected tool's own skills dir
-  commands/                   the workflow, written once — propose/design/implement/verify/archive
+  commands/                   the workflow, written once — onboard/propose/design/implement/verify/archive
   ci/                         GitHub Actions + GitLab CI pipelines
 standard/                   the docs your boss reads
 tests/                      proof that each gate blocks what it claims to, and that

@@ -41,6 +41,7 @@ for f in \
   "assets/templates/change/spec.md" \
   "assets/skills/spec-authoring/SKILL.md" \
   "assets/commands/propose.md" \
+  "assets/commands/onboard.md" \
   "assets/templates/kiro/product.md.tpl" \
   "assets/ci/github/agentic-sdlc.yml" \
   "assets/ci/gitlab/agentic-sdlc.yml" ; do
@@ -54,15 +55,20 @@ mkdir -p src; echo "#" > README.md; git add -A; git commit -qm init; git branch 
 
 check "asdlc init (claude-code, github)" env NO_COLOR=1 "$VENV/bin/asdlc" init --tools claude-code --ci github
 for f in .asdlc/policy.yaml CLAUDE.md \
-         .claude/commands/propose.md .claude/skills/spec-authoring/SKILL.md \
+         .claude/commands/propose.md .claude/commands/onboard.md \
+         .claude/skills/spec-authoring/SKILL.md \
          .github/workflows/agentic-sdlc.yml ; do
   check "init produced: $f" test -e "$REPO/$f"
 done
+check "next-step message recommends /onboard" \
+  bash -c "'$VENV/bin/asdlc' init --tools claude-code 2>&1 | grep -q '/onboard'"
 check "claude-code alone: no AGENTS.md hub (nothing else reads it)" test ! -e "$REPO/AGENTS.md"
 check "claude-code alone: CLAUDE.md has real content, not an import" \
   grep -q "workflow you must follow" "$REPO/CLAUDE.md"
 check "default --sdd: workflow note doesn't namedrop unused front-ends" \
   bash -c "! grep -qE 'OpenSpec|Spec Kit|BMAD|Kiro' '$REPO/CLAUDE.md'"
+check "doctor checks CLAUDE.md, not a false-negative AGENTS.md, when claude-code is alone" \
+  bash -c "cd '$REPO' && NO_COLOR=1 '$VENV/bin/asdlc' doctor 2>&1 | grep -q 'yes  CLAUDE.md'"
 check ".asdlc/skills is not created" test ! -e "$REPO/.asdlc/skills"
 check "default --sdd keeps openspec/changes in policy.yaml" \
   grep -q "changes: \"openspec/changes\"" "$REPO/.asdlc/policy.yaml"
