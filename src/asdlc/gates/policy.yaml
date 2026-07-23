@@ -8,6 +8,22 @@
 
 profile: balanced   # strict | balanced | light  (documentation only; see presets/)
 
+# Which SDD methodology `asdlc init --sdd` installed here (none/openspec/
+# speckit/bmad/kiro). Recorded so a later `asdlc init` re-run — e.g. adding a
+# tool — knows what's already configured without repeating --sdd, and so
+# `asdlc doctor`/the printed next-step hint stay accurate. Edit by hand if
+# you switch front-ends outside of `asdlc init --force`.
+sdd: %%SDD_CHOICE%%
+
+# Where asdlc's own artifact contract lives. Set once by `asdlc init` based on
+# --sdd: openspec/changes+specs when OpenSpec is the front-end (or none is),
+# .asdlc/changes+specs otherwise — avoids calling this directory "openspec"
+# when OpenSpec isn't actually installed. Edit by hand if you move it later;
+# every gate reads these two values, not a hardcoded path.
+artifact_dirs:
+  changes: %%CHANGES_DIR%%
+  specs: %%SPECS_DIR%%
+
 # What counts as production code. Everything else is free to change without spec.
 source_globs:
   - "src/**"
@@ -26,6 +42,13 @@ capabilities:
   # auth:
   #   - "src/auth/**"
 
+# These checks verify asdlc's OWN artifact contract — proposal/spec/design/
+# tasks.md, REQ-IDs, SHALL statements — nothing about OpenSpec, Spec Kit,
+# BMAD, or Kiro specifically. They're on by default (`sdd: none` above)
+# because nothing else checks that contract. `asdlc init --sdd <front-end>`
+# disables the four spec-shape ones below, since that front-end's own
+# commands don't produce this shape. Still using asdlc's own /propose
+# alongside the front-end? Flip them back to `enabled: true` by hand.
 checks:
   spec-present:
     enabled: true

@@ -17,5 +17,5 @@ in the right place instead of a plausible-looking wrong one.
 ## The workflow you must follow
 This repo uses a spec-first, gated workflow (see AGENTS.md and `asdlc verify`
 if this repo has adopted the agentic-sdlc standard). Do not improvise around
-it: no code without a change folder under `openspec/changes/<change-id>/`,
+it: no code without a change folder under `{{CHANGES_DIR}}/<change-id>/`,
 and `asdlc verify` must pass before a PR opens.

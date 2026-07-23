@@ -106,14 +106,17 @@ so each tool's native discovery works without an indirection to chase.
 
 Context uses the standards, not our inventions: **AGENTS.md** (Linux Foundation's
 Agentic AI Foundation, read by 20+ tools, 60k+ repos) and **SKILL.md** (open
-standard, read by Claude Code, Codex, Cursor, VS Code and others). `CLAUDE.md`, if
-the client wants one, is a one-line pointer to AGENTS.md.
+standard, read by Claude Code, Codex, Cursor, VS Code and others). Claude Code
+never reads AGENTS.md directly — only `CLAUDE.md`. If some other selected
+`--tools` choice reads AGENTS.md natively (Codex/Cursor/Copilot), that stays
+the shared hub and `CLAUDE.md` becomes a one-line `@AGENTS.md` import — one
+source of truth, no drift between two copies. If `claude-code` is the only
+tool that needs this content, there's no AGENTS.md at all — the real content
+goes straight into `CLAUDE.md` instead of a hub nothing else reads.
 
 ## Which SDD front-end?
 
 Don't standardize one globally. Pick per engagement from a menu the standard defines.
-The artifact layout here is OpenSpec-compatible on purpose, so you can adopt its
-CLI and slash commands for free — or drop it and keep the gates.
 
 | Client situation | Front-end | `asdlc init --sdd ...` |
 |---|---|---|
@@ -123,8 +126,6 @@ CLI and slash commands for free — or drop it and keep the gates.
 | AWS-committed, tolerant of IDE lock-in | **Kiro** | `kiro` |
 | Nothing / hostile procurement | this repo alone — `asdlc` + AGENTS.md is enough | `none` (default) |
 
-`asdlc verify` is identical in every row. That is the product.
-
 `--sdd` shells out to each tool's own installer (`npx` for OpenSpec/BMAD, `uv`
 for Spec Kit) instead of vendoring a copy — asdlc doesn't own these, it just
 launches them, mapping `--tools` (claude-code/codex/copilot/cursor) to
@@ -132,6 +133,29 @@ whatever vocabulary that installer expects. `kiro` is the exception: no CLI
 exists, so `asdlc` writes its `.kiro/steering/{product,tech,structure}.md`
 templates directly. `npx`/`uv` are the client's dependency for that choice,
 not `asdlc`'s — pick `none` (the default) and nothing changes.
+
+**Verified, not assumed:** none of these front-ends' own commands produce
+what asdlc's spec gates check for — not even OpenSpec's. Its own `openspec
+new change` writes `specs/**/*.md` under the change folder, never a literal
+`spec.md`; `spec-present`/`spec-lint` require that exact filename. So
+`asdlc init --sdd <anything but none>` **disables `spec-present`,
+`spec-lint`, `traceability`, and `spec-drift`** in the generated
+`.asdlc/policy.yaml` — they can't verify a front-end's native shape, so they
+don't pretend to. `coverage-delta`, `security-scan`, and `human-approval`
+stay on always; they're the part of the contract that's genuinely
+front-end-agnostic. Still want asdlc's own spec gates *and* a front-end
+installed side by side? Use asdlc's own `/propose → /design → /implement`
+(not the front-end's commands) to actually produce the gated artifacts, then
+flip the four checks back to `enabled: true` by hand in `policy.yaml`.
+
+Directory naming follows the same split, recorded in `.asdlc/policy.yaml`'s
+`artifact_dirs`: `openspec/changes` + `openspec/specs` for `--sdd openspec`
+or `none` (that pairing was never confusing — no other tool is present to
+contradict it); `.asdlc/changes` + `.asdlc/specs` for `speckit`/`bmad`/`kiro`,
+so this repo's own workflow never claims to be "openspec" when a different
+front-end is actually installed. Each front-end's own artifacts (Spec Kit's
+`specs/`, BMAD's `_bmad/`, Kiro's `.kiro/`) live wherever *that tool* puts
+them — asdlc never reads those paths, gates disabled or not.
 
 ```bash
 asdlc init --tools claude-code --sdd openspec --ci github

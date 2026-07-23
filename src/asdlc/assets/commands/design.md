@@ -2,7 +2,7 @@
 %%HINT: <change-id>%%
 Design the approved change: %%ARG%%
 
-1. Read `openspec/changes/<change-id>/proposal.md` and `spec.md`, plus `AGENTS.md`.
+1. Read `%%CHANGES_DIR%%/<change-id>/proposal.md` and `spec.md`, plus `AGENTS.md`.
 2. Explore the actual codebase before proposing anything. Name the files you read.
 3. Fill in `design.md`:
    - Approach, and at least one real alternative with why it lost.

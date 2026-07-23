@@ -21,7 +21,6 @@ import re
 import shutil
 import subprocess
 import sys
-from dataclasses import dataclass, field
 from pathlib import Path
 
 # The asset payload ships inside the package. Anything read at runtime must be
@@ -32,9 +31,67 @@ ASSETS = PKG / "assets"
 from asdlc import commands, sdd
 from asdlc.gates.checks import ALL_CHECKS, CheckResult, Context, load_policy
 
-CHANGES_DIR = "openspec/changes"
-SPECS_DIR = "openspec/specs"
 ARTIFACTS = ["proposal.md", "spec.md", "design.md", "tasks.md"]
+
+
+def _default_artifact_dirs(sdd_choice: str) -> tuple[str, str]:
+    """Where asdlc's own artifact contract lives, chosen once at `init` time.
+
+    openspec/ for openspec (or no) front-end — it was never confusing and the
+    README already explains the "OpenSpec-compatible on purpose" reasoning.
+    .asdlc/ for anything else — calling it "openspec" when a different front-
+    end is actually installed is the thing this function exists to avoid.
+    """
+    if sdd_choice in ("none", "openspec"):
+        return "openspec/changes", "openspec/specs"
+    return ".asdlc/changes", ".asdlc/specs"
+
+
+# What actually creates your first change, per --sdd choice. Telling someone
+# who picked a real front-end to run `asdlc new` would contradict the whole
+# point of relaxing the spec-shape gates for that choice — they're not
+# supposed to need asdlc's own commands anymore.
+NEXT_STEP_HINT = {
+    "none": "run `asdlc new my-first-change`",
+    "openspec": "run `openspec new change my-first-change` (or `/opsx:propose` in your agent)",
+    "speckit": "run `/speckit-specify` in your agent to create your first feature spec",
+    "bmad": "start your first PRD/story with BMAD's own installed workflow",
+    "kiro": "open Kiro's Spec mode for your first feature",
+}
+
+
+def _read_artifact_dirs(root: Path) -> tuple[str, str]:
+    policy = load_policy(root, PKG)
+    dirs = policy.get("artifact_dirs") or {}
+    return (
+        dirs.get("changes", "openspec/changes"),
+        dirs.get("specs", "openspec/specs"),
+    )
+
+
+def _read_sdd_choice(root: Path) -> str:
+    return load_policy(root, PKG).get("sdd") or "none"
+
+
+# Checks that can only verify asdlc's own proposal/spec/design/tasks.md
+# contract — meaningless once a real SDD front-end's own commands (not
+# asdlc's /propose) are what's actually producing artifacts.
+SPEC_SHAPE_CHECKS = ["spec-present", "spec-lint", "traceability", "spec-drift"]
+
+
+def _relaxed_checks(sdd_choice: str) -> list[str]:
+    return [] if sdd_choice == "none" else SPEC_SHAPE_CHECKS
+
+
+def _disable_checks(policy_text: str, names: list[str]) -> str:
+    for name in names:
+        policy_text = re.sub(
+            rf"(  {re.escape(name)}:\n    enabled: )true",
+            r"\1false",
+            policy_text,
+            count=1,
+        )
+    return policy_text
 
 GREEN, RED, YELLOW, DIM, RESET = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
 if not sys.stdout.isatty() or os.environ.get("NO_COLOR"):
@@ -89,34 +146,76 @@ def cmd_init(args: argparse.Namespace) -> int:
     root = repo_root()
     print(f"Installing the agentic SDLC standard into {root}")
 
-    (root / CHANGES_DIR).mkdir(parents=True, exist_ok=True)
-    (root / SPECS_DIR).mkdir(parents=True, exist_ok=True)
+    # Not pre-created: no gate needs it to exist ahead of time (they all work
+    # off changed_files string matching), and asdlc shouldn't presumptuously
+    # scaffold an empty "openspec/" (or any) folder before anyone's actually
+    # made a change. `asdlc new` creates it lazily via mkdir(parents=True).
+    changes_dir, specs_dir = _default_artifact_dirs(args.sdd)
     (root / ".asdlc").mkdir(exist_ok=True)
 
     # policy
     dst_policy = root / ".asdlc" / "policy.yaml"
     if not dst_policy.exists() or args.force:
-        shutil.copy(PKG / "gates" / "policy.yaml", dst_policy)
-        print(f"  {GREEN}+{RESET} .asdlc/policy.yaml            (edit this per client)")
+        tpl = (PKG / "gates" / "policy.yaml").read_text()
+        tpl = tpl.replace("%%CHANGES_DIR%%", changes_dir).replace("%%SPECS_DIR%%", specs_dir)
+        tpl = tpl.replace("%%SDD_CHOICE%%", args.sdd)
+        relaxed = _relaxed_checks(args.sdd)
+        if relaxed:
+            tpl = _disable_checks(tpl, relaxed)
+        dst_policy.write_text(tpl)
+        note = f" ({len(relaxed)} spec-shape check(s) disabled — see comment)" if relaxed else ""
+        print(f"  {GREEN}+{RESET} .asdlc/policy.yaml            (edit this per client){note}")
 
-    # AGENTS.md
-    agents = root / "AGENTS.md"
-    if not agents.exists() or args.force:
-        tpl = (ASSETS / "templates" / "AGENTS.md.tpl").read_text()
-        tpl = tpl.replace("{{PROJECT}}", args.project or root.name)
-        tpl = tpl.replace("{{STACK}}", args.stack or "TODO: languages, frameworks, versions")
-        agents.write_text(tpl)
-        print(f"  {GREEN}+{RESET} AGENTS.md                     (fill in the TODOs — this is the context contract)")
+    # AGENTS.md / CLAUDE.md — Claude Code never reads AGENTS.md, only
+    # CLAUDE.md. If some OTHER selected tool reads AGENTS.md natively
+    # (Codex/Cursor/Copilot), generate it as the shared hub and make
+    # CLAUDE.md a one-line import — one source of truth, no drift between
+    # two copies. If claude-code is the only tool that needs this content,
+    # skip AGENTS.md entirely and write the real content straight into
+    # CLAUDE.md — no reason to keep a hub file nothing else reads.
+    NATIVE_AGENTS_MD_TOOLS = {"codex", "cursor", "copilot"}
+    has_native_reader = any(t in NATIVE_AGENTS_MD_TOOLS for t in args.tools)
+    inline_into_claude = "claude-code" in args.tools and not has_native_reader
+
+    context_tpl = (ASSETS / "templates" / "AGENTS.md.tpl").read_text()
+    context_tpl = context_tpl.replace("{{PROJECT}}", args.project or root.name)
+    context_tpl = context_tpl.replace("{{STACK}}", args.stack or "TODO: languages, frameworks, versions")
+    context_tpl = context_tpl.replace("{{CHANGES_DIR}}", changes_dir).replace("{{SPECS_DIR}}", specs_dir)
+
+    if not inline_into_claude:
+        agents = root / "AGENTS.md"
+        if not agents.exists() or args.force:
+            note = ("It is read natively by Codex, Cursor, Copilot, Gemini CLI, Aider, "
+                     "Zed, Windsurf and others. Claude Code never reads this file directly "
+                     "— it only reads CLAUDE.md — so `asdlc init --tools claude-code` "
+                     "generates a one-line `@AGENTS.md` import there. One source of truth "
+                     "either way.")
+            agents.write_text(context_tpl.replace("{{FILE_NOTE}}", note))
+            print(f"  {GREEN}+{RESET} AGENTS.md                     (fill in the TODOs — this is the context contract)")
+
+    if "claude-code" in args.tools:
+        claude_md = root / "CLAUDE.md"
+        if not claude_md.exists() or args.force:
+            if inline_into_claude:
+                note = ("Claude Code reads this file directly and never reads AGENTS.md — "
+                         "since no other selected tool needs a shared AGENTS.md hub, this "
+                         "is the one and only copy of this content.")
+                claude_md.write_text(context_tpl.replace("{{FILE_NOTE}}", note))
+                print(f"  {GREEN}+{RESET} CLAUDE.md                     (fill in the TODOs — this is the context contract)")
+            else:
+                claude_md.write_text("See @AGENTS.md — this repo's single source of context and workflow rules.\n")
+                print(f"  {GREEN}+{RESET} CLAUDE.md                     (pointer — Claude Code does not read AGENTS.md itself)")
 
     # adapters
     for tool in args.tools:
-        n = render_adapter(root, tool, force=args.force)
+        n = render_adapter(root, tool, changes_dir, specs_dir, force=args.force)
         print(f"  {GREEN}+{RESET} adapter: {tool:<20} ({n} files)")
 
     # SDD methodology
     if args.sdd != "none":
         sdd.install(root, args.sdd, args.tools, ASSETS,
-                    project=args.project, stack=args.stack, force=args.force)
+                    project=args.project, stack=args.stack,
+                    changes_dir=changes_dir, specs_dir=specs_dir, force=args.force)
         print(f"  {GREEN}+{RESET} sdd: {args.sdd}")
 
     # CI
@@ -129,10 +228,14 @@ def cmd_init(args: argparse.Namespace) -> int:
         shutil.copy(ASSETS / "ci" / "gitlab" / "agentic-sdlc.yml", root / ".agentic-sdlc.gitlab-ci.yml")
         print(f"  {GREEN}+{RESET} .agentic-sdlc.gitlab-ci.yml   (include: it from .gitlab-ci.yml)")
 
-    print(
-        f"\nNext: fill in AGENTS.md, tune .asdlc/policy.yaml, then run "
-        f"`asdlc new my-first-change`."
-    )
+    # Read back what's actually persisted, not just this invocation's --sdd —
+    # a later `asdlc init` re-run (e.g. adding a tool) without repeating --sdd
+    # must still reflect whatever front-end this repo already has configured.
+    effective_sdd = _read_sdd_choice(root)
+    next_step = NEXT_STEP_HINT[effective_sdd]
+    gate_note = "" if effective_sdd == "none" else " (asdlc's own spec gates are disabled for this choice — see .asdlc/policy.yaml)"
+    context_file = "CLAUDE.md" if inline_into_claude else "AGENTS.md"
+    print(f"\nNext: fill in {context_file}, tune .asdlc/policy.yaml, then {next_step}.{gate_note}")
     return 0
 
 
@@ -148,7 +251,7 @@ ADAPTER_TARGETS = {
 }
 
 
-def render_adapter(root: Path, tool: str, force: bool = False) -> int:
+def render_adapter(root: Path, tool: str, changes_dir: str, specs_dir: str, force: bool = False) -> int:
     if tool not in ADAPTER_TARGETS:
         raise SystemExit(f"unknown tool '{tool}'. known: {', '.join(sorted(ADAPTER_TARGETS))}")
     shared = ASSETS / "commands"
@@ -167,11 +270,11 @@ def render_adapter(root: Path, tool: str, force: bool = False) -> int:
                 count += 1
         elif kind == "__single__":
             dst.parent.mkdir(parents=True, exist_ok=True)
-            dst.write_text(commands.render_generic(shared))
+            dst.write_text(commands.render_generic(shared, changes_dir, specs_dir))
             count += 1
         else:
             dst.mkdir(parents=True, exist_ok=True)
-            for name, content in sorted(commands.render_tool_files(tool, shared).items()):
+            for name, content in sorted(commands.render_tool_files(tool, shared, changes_dir, specs_dir).items()):
                 target = dst / name
                 if target.exists() and not force:
                     continue
@@ -185,8 +288,9 @@ def render_adapter(root: Path, tool: str, force: bool = False) -> int:
 # --------------------------------------------------------------------------- #
 def cmd_new(args: argparse.Namespace) -> int:
     root = repo_root()
+    changes_dir, _ = _read_artifact_dirs(root)
     cid = slugify(args.change_id)
-    folder = root / CHANGES_DIR / cid
+    folder = root / changes_dir / cid
     if folder.exists():
         print(f"{RED}change '{cid}' already exists{RESET}")
         return 1
@@ -196,10 +300,10 @@ def cmd_new(args: argparse.Namespace) -> int:
         text = text.replace("{{CHANGE_ID}}", cid)
         text = text.replace("{{TITLE}}", args.change_id)
         (folder / a).write_text(text)
-    print(f"{GREEN}created{RESET} {CHANGES_DIR}/{cid}/  ({', '.join(ARTIFACTS)})")
+    print(f"{GREEN}created{RESET} {changes_dir}/{cid}/  ({', '.join(ARTIFACTS)})")
     print(
         "\nHand this to whatever agent the client uses:\n"
-        f"  \"Read AGENTS.md and {CHANGES_DIR}/{cid}/. Fill in proposal.md and spec.md.\n"
+        f"  \"Read AGENTS.md and {changes_dir}/{cid}/. Fill in proposal.md and spec.md.\n"
         "   Do not write code until spec.md passes `asdlc verify --stage spec`.\""
     )
     return 0
@@ -211,6 +315,7 @@ def cmd_new(args: argparse.Namespace) -> int:
 def cmd_verify(args: argparse.Namespace) -> int:
     root = repo_root()
     policy = load_policy(root, PKG)
+    changes_dir, specs_dir = _read_artifact_dirs(root)
     files = changed_files(root, args.base)
     ctx = Context(
         root=root,
@@ -218,8 +323,8 @@ def cmd_verify(args: argparse.Namespace) -> int:
         changed_files=files,
         base=args.base,
         stage=args.stage,
-        changes_dir=CHANGES_DIR,
-        specs_dir=SPECS_DIR,
+        changes_dir=changes_dir,
+        specs_dir=specs_dir,
     )
 
     selected = [c for c in ALL_CHECKS if c.stage in (args.stage, "any") or args.stage == "all"]
@@ -262,9 +367,10 @@ def cmd_verify(args: argparse.Namespace) -> int:
 # --------------------------------------------------------------------------- #
 # doctor
 # --------------------------------------------------------------------------- #
-def cmd_doctor(args: argparse.Namespace) -> int:
+def cmd_doctor(_args: argparse.Namespace) -> int:
     root = repo_root()
     print(f"repo: {root}\n")
+    changes_dir, specs_dir = _read_artifact_dirs(root)
     checks = [
         ("AGENTS.md", (root / "AGENTS.md").exists()),
         ("policy (.asdlc/policy.yaml)", (root / ".asdlc" / "policy.yaml").exists()),
@@ -272,8 +378,8 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             next((root / p).glob("*/SKILL.md"), None) is not None
             for p in (".claude/skills", ".codex/skills", ".github/skills", ".cursor/skills")
         )),
-        ("changes dir", (root / CHANGES_DIR).exists()),
-        ("specs dir", (root / SPECS_DIR).exists()),
+        (f"changes dir ({changes_dir})", (root / changes_dir).exists()),
+        (f"specs dir ({specs_dir})", (root / specs_dir).exists()),
     ]
     for name, ok in checks:
         print(f"  {GREEN + 'yes' + RESET if ok else RED + 'no ' + RESET}  {name}")
@@ -309,7 +415,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             print(f"  {GREEN}yes{RESET}  {name:<12} ({path})")
 
     stale = []
-    for cf in sorted((root / CHANGES_DIR).glob("*/")) if (root / CHANGES_DIR).exists() else []:
+    for cf in sorted((root / changes_dir).glob("*/")) if (root / changes_dir).exists() else []:
         tasks = cf / "tasks.md"
         if tasks.exists():
             body = tasks.read_text()

@@ -1,9 +1,10 @@
-# AGENTS.md — agentic-sdlc-2
+# AGENTS.md — agentic-sdlc
 
 <!--
 This is the context contract. It is read natively by Codex, Cursor, Copilot,
-Gemini CLI, Aider, Zed, Windsurf and others; Claude Code reads it when CLAUDE.md
-is absent, and our CLAUDE.md is a pointer to this file. One source of truth.
+Gemini CLI, Aider, Zed, Windsurf and others. Claude Code never reads this file
+directly — it only reads CLAUDE.md — so `asdlc init --tools claude-code`
+generates a one-line `@AGENTS.md` import there. One source of truth either way.
 
 Rules for maintaining it:
   - Commands and constraints first. Agents re-read those constantly.
@@ -15,7 +16,7 @@ Rules for maintaining it:
 -->
 
 ## What this is
-agentic-sdlc-2 — <!-- one paragraph, what it does and for whom -->
+agentic-sdlc — <!-- one paragraph, what it does and for whom -->
 
 ## Stack (pinned)
 TODO: languages, frameworks, versions
@@ -32,9 +33,14 @@ asdlc verify               # the gates. If this fails, the work is not done.
 
 ## The workflow you must follow
 This repo uses a spec-first, gated workflow. Do not improvise around it.
+The paths below are asdlc's own artifact contract (see `.asdlc/policy.yaml`'s
+`artifact_dirs`) — its own thing, independent of whatever SDD front-end (if
+any) this repo also has installed (OpenSpec, Spec Kit, BMAD, Kiro). If one is
+installed, it runs alongside this workflow, not instead of it; `asdlc verify`
+only ever checks the paths below.
 
 1. **No code without a change folder.** Every change lives in
-   `openspec/changes/<change-id>/` with proposal.md, spec.md, design.md, tasks.md.
+   `.asdlc/changes/<change-id>/` with proposal.md, spec.md, design.md, tasks.md.
    Create one with `asdlc new <change-id>` if it does not exist.
 2. **Stop after design.md.** A human reviews and approves the design before you
    write implementation code. Do not skip ahead because the task seems obvious.
@@ -44,7 +50,7 @@ This repo uses a spec-first, gated workflow. Do not improvise around it.
 4. **Tests reference requirement IDs.** Every test that covers REQ-00X must name
    `REQ-00X` in its name or docstring. The traceability gate enforces this.
 5. **Run `asdlc verify` before opening a PR.** Red gates are not "mostly done".
-6. **Update the living spec** in `openspec/specs/<capability>/` when behaviour
+6. **Update the living spec** in `.asdlc/specs/<capability>/` when behaviour
    changes. Stale specs are worse than no specs — you will read them next time.
 
 ## Conventions

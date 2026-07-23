@@ -19,7 +19,7 @@ Then:
 5. Never weaken, skip, or delete a test to get green. Never edit
    `.asdlc/policy.yaml`.
 6. When every task is ticked: run `asdlc verify` and fix what it reports.
-7. Update `openspec/specs/<capability>/spec.md` so the living spec matches
+7. Update `%%SPECS_DIR%%/<capability>/spec.md` so the living spec matches
    reality (**drift-reconciliation** skill).
 8. Open a PR: title `<change-id>: <outcome>`, body = the proposal's Problem and
    Outcome, the REQ- IDs covered, and the regression surface you re-verified.

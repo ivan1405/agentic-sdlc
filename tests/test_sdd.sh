@@ -46,12 +46,16 @@ if skip_unless npx "openspec"; then
   setup
   check "asdlc init --sdd openspec" env NO_COLOR=1 $ASDLC init --tools claude-code --ci none --sdd openspec --force
   check "openspec produced config.yaml" test -f openspec/config.yaml
+  check "--sdd openspec keeps openspec/changes (not .asdlc/)" \
+    grep -q "changes: openspec/changes" .asdlc/policy.yaml
 fi
 
 if skip_unless uv "speckit"; then
   setup
   check "asdlc init --sdd speckit" env NO_COLOR=1 $ASDLC init --tools claude-code --ci none --sdd speckit --force
   check "speckit produced .specify/" test -d .specify
+  check "--sdd speckit switches to .asdlc/changes (not openspec/)" \
+    grep -q "changes: \.asdlc/changes" .asdlc/policy.yaml
 fi
 
 # BMAD's installer has been observed to show one confirmation prompt even
