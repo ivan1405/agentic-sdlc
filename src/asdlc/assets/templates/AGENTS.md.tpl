@@ -47,6 +47,13 @@ This repo uses a spec-first, gated workflow. Do not improvise around it.
 6. **Update the living spec** in `{{SPECS_DIR}}/<capability>/` when behaviour
    changes. Stale specs are worse than no specs — you will read them next time.
 
+## MCP servers
+Project-scoped MCP servers live in `.mcp.json` (empty by default — most agent
+tools that support MCP read this file). Run `asdlc mcp list` to see asdlc's
+curated catalog (Jira/Confluence, GitHub, Slack, ...) and `asdlc mcp add
+<name>` to wire one up; add only what this repo actually needs, and commit
+the file so every agent gets the same servers.
+
 ## Conventions
 - <!-- 2-4 bullets, load-bearing only: naming, error handling, logging, etc. -->
 - <!-- be specific: "use X, never Y" beats "prefer X" -->

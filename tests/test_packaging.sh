@@ -58,9 +58,12 @@ check "asdlc init (claude-code, github)" env NO_COLOR=1 "$VENV/bin/asdlc" init -
 for f in .asdlc/policy.yaml CLAUDE.md \
          .claude/commands/propose.md .claude/commands/onboard.md \
          .claude/skills/spec-authoring/SKILL.md \
-         .github/workflows/agentic-sdlc.yml ; do
+         .github/workflows/agentic-sdlc.yml .mcp.json ; do
   check "init produced: $f" test -e "$REPO/$f"
 done
+check ".mcp.json starts empty — asdlc doesn't opine on which servers" \
+  bash -c "python3 -c \"import json,sys; d=json.load(open('$REPO/.mcp.json')); sys.exit(0 if d == {'mcpServers': {}} else 1)\""
+check "CLAUDE.md points at .mcp.json for MCP servers" grep -q '.mcp.json' "$REPO/CLAUDE.md"
 check "next-step message recommends /onboard" \
   bash -c "'$VENV/bin/asdlc' init --tools claude-code 2>&1 | grep -q '/onboard'"
 check "claude-code alone: no AGENTS.md hub (nothing else reads it)" test ! -e "$REPO/AGENTS.md"
@@ -139,6 +142,35 @@ done
 check "asdlc new" env NO_COLOR=1 "$VENV/bin/asdlc" new demo-change
 check "new produced spec.md" test -f "$REPO/.asdlc/changes/demo-change/spec.md"
 check "asdlc doctor" env NO_COLOR=1 "$VENV/bin/asdlc" doctor
+
+check "asdlc mcp list" env NO_COLOR=1 "$VENV/bin/asdlc" mcp list
+check "mcp list shows atlassian catalog entry" \
+  bash -c "cd '$REPO' && NO_COLOR=1 '$VENV/bin/asdlc' mcp list | grep -q atlassian"
+check "asdlc mcp add atlassian slack" env NO_COLOR=1 "$VENV/bin/asdlc" mcp add atlassian slack
+check "mcp add wrote both servers into .mcp.json" \
+  bash -c "python3 -c \"import json; d=json.load(open('$REPO/.mcp.json')); assert set(d['mcpServers']) == {'atlassian','slack'}\""
+check "mcp add rejects an unknown catalog name" \
+  bash -c "! '$VENV/bin/asdlc' mcp add bogus 2>/dev/null"
+check "asdlc mcp remove slack" env NO_COLOR=1 "$VENV/bin/asdlc" mcp remove slack
+check "mcp remove actually removed it" \
+  bash -c "python3 -c \"import json; d=json.load(open('$REPO/.mcp.json')); assert set(d['mcpServers']) == {'atlassian'}\""
+check "mcp remove of a name that isn't configured fails" \
+  bash -c "! '$VENV/bin/asdlc' mcp remove slack 2>/dev/null"
+
+check "asdlc mcp add atlassian-self-hosted" env NO_COLOR=1 "$VENV/bin/asdlc" mcp add atlassian-self-hosted
+check "atlassian-self-hosted is a local (uvx) entry, not remote/OAuth" \
+  bash -c "cd '$REPO' && NO_COLOR=1 '$VENV/bin/asdlc' mcp list | grep -A1 '^  atlassian-self-hosted ' | grep -q '\[local\]'"
+check "atlassian-self-hosted config uses uvx + env-var placeholders, never literal secrets" \
+  bash -c "python3 -c \"
+import json
+d = json.load(open('$REPO/.mcp.json'))['mcpServers']['atlassian-self-hosted']
+assert d['command'] == 'uvx'
+assert d['args'] == ['mcp-atlassian']
+assert all(v == '\\\${' + k + '}' for k, v in d['env'].items())
+\""
+check "mcp add prints which env vars atlassian-self-hosted needs" \
+  bash -c "cd '$REPO' && NO_COLOR=1 '$VENV/bin/asdlc' mcp add atlassian-self-hosted | grep -q JIRA_PERSONAL_TOKEN"
+check "asdlc mcp remove atlassian-self-hosted" env NO_COLOR=1 "$VENV/bin/asdlc" mcp remove atlassian-self-hosted
 check "asdlc verify runs on a clean repo" env NO_COLOR=1 "$VENV/bin/asdlc" verify --base main --stage code
 check "python -m asdlc works" env NO_COLOR=1 "$VENV/bin/python" -m asdlc doctor
 

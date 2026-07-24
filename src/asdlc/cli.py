@@ -45,8 +45,10 @@ except ImportError:  # POSIX
 PKG = Path(__file__).resolve().parent
 ASSETS = PKG / "assets"
 
-from asdlc import agents, commands, sdd
+from asdlc import agents, commands, mcp, sdd
 from asdlc.gates.checks import ALL_CHECKS, CheckResult, Context, load_policy
+
+MCP_CATALOG = mcp.load_catalog(ASSETS)
 
 ARTIFACTS = ["proposal.md", "spec.md", "design.md", "tasks.md"]
 
@@ -289,6 +291,18 @@ def cmd_init(args: argparse.Namespace) -> int:
             else:
                 claude_md.write_text("See @AGENTS.md — this repo's single source of context and workflow rules.\n")
                 print(f"  {GREEN}+{RESET} CLAUDE.md                     (pointer — Claude Code does not read AGENTS.md itself)")
+
+    # MCP servers — tool-agnostic (most MCP hosts read project-scoped
+    # .mcp.json), so this doesn't belong in adapters/. Which servers a repo
+    # actually needs is out of scope for asdlc; ship the empty shell and let
+    # AGENTS.md point at it, rather than opining on specific servers/creds.
+    mcp_json = root / ".mcp.json"
+    if not mcp_json.exists() or args.force:
+        mcp_json.write_text((ASSETS / "templates" / "mcp.json.tpl").read_text())
+        print(f"  {GREEN}+{RESET} .mcp.json                     (empty — add servers this repo needs)")
+    for name in getattr(args, "mcp", None) or []:
+        entry = mcp.add(root, ASSETS, name)
+        print(f"  {GREEN}+{RESET} .mcp.json: {name:<10} ({entry['display']})")
 
     # adapters
     for tool in args.tools:
@@ -539,6 +553,44 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_mcp_list(_args: argparse.Namespace) -> int:
+    configured = mcp.read_mcp_json(repo_root()).get("mcpServers", {})
+    print("MCP catalog (verify against the docs link before rolling out to a client):\n")
+    name_w = max(len(n) for n in MCP_CATALOG) + 2
+    for name, entry in sorted(MCP_CATALOG.items()):
+        mark = f"{GREEN}configured{RESET}" if name in configured else f"{DIM}not configured{RESET}"
+        print(f"  {name:<{name_w}} {entry['display']:<32} [{entry['kind']}]  {mark}")
+        print(f"  {' ' * name_w} {DIM}{entry['note']}{RESET}")
+        print(f"  {' ' * name_w} {DIM}{entry['docs']}{RESET}")
+    extra = sorted(set(configured) - set(MCP_CATALOG))
+    if extra:
+        print(f"\nAlso configured in .mcp.json (not from asdlc's catalog): {', '.join(extra)}")
+    return 0
+
+
+def cmd_mcp_add(args: argparse.Namespace) -> int:
+    root = repo_root()
+    for name in args.names:
+        entry = mcp.add(root, ASSETS, name)
+        print(f"  {GREEN}+{RESET} .mcp.json: {name} ({entry['display']}) — {entry['note']}")
+        env_vars = sorted(entry["config"].get("env", {}))
+        if env_vars:
+            print(f"      {YELLOW}set these before it can start:{RESET} {', '.join(env_vars)}")
+    return 0
+
+
+def cmd_mcp_remove(args: argparse.Namespace) -> int:
+    root = repo_root()
+    ok = True
+    for name in args.names:
+        if mcp.remove(root, name):
+            print(f"  {RED}-{RESET} .mcp.json: {name}")
+        else:
+            print(f"  {YELLOW}!{RESET} '{name}' wasn't in .mcp.json")
+            ok = False
+    return 0 if ok else 1
+
+
 # --------------------------------------------------------------------------- #
 # setup wizard — only for `asdlc init` with zero flags, at a real terminal.
 # Anything scripted (CI, tests, `--tools ...`) always goes through argparse
@@ -563,14 +615,6 @@ def _banner() -> str:
     blank = f"║{' ' * width}║"
     lines = [top, blank, *(f"║{r.center(width)}║" for r in art_rows),
               blank, f"║{tagline.center(width)}║", blank, bottom]
-
-    # Colored text throws off .center()'s length math (it counts the escape
-    # codes as characters) — pad against the PLAIN text's length first, then
-    # wrap the colored pieces in place so the visible layout stays correct.
-    plain_credit = "●● built by Parser"
-    pad = len(top) - len(plain_credit)
-    credit = " " * pad + f"{RED}●●{RESET} {DIM}built by{RESET} {RED}Parser{RESET}"
-    lines.append(credit)
     return "\n".join(lines)
 
 
@@ -736,7 +780,8 @@ def _arrow_choice(question: str, options: list[str], default: str,
         return None
 
 
-def _arrow_multi(question: str, options: list[str], default: list[str]) -> list[str] | None:
+def _arrow_multi(question: str, options: list[str], default: list[str],
+                  blurbs: dict[str, str] | None = None) -> list[str] | None:
     """Interactive arrow-key checkbox multi-select. Returns the picked
     options, or None if the terminal can't support it."""
     if not _menu_supported():
@@ -747,7 +792,7 @@ def _arrow_multi(question: str, options: list[str], default: list[str]) -> list[
     try:
         with _raw_mode():
             while True:
-                prev_lines = _render_menu(prev_lines, question, options, cursor, selected, None)
+                prev_lines = _render_menu(prev_lines, question, options, cursor, selected, blurbs)
                 cursor, selected, outcome = _apply_key_multi(cursor, selected, _read_key(), len(options))
                 if outcome == "confirm":
                     return [opt for i, opt in enumerate(options) if i in selected] or default
@@ -778,13 +823,16 @@ def _prompt_choice(question: str, options: list[str], default: str,
     return default
 
 
-def _prompt_multi(question: str, options: list[str], default: list[str]) -> list[str]:
-    picked = _arrow_multi(question, options, default)
+def _prompt_multi(question: str, options: list[str], default: list[str],
+                   blurbs: dict[str, str] | None = None) -> list[str]:
+    picked = _arrow_multi(question, options, default, blurbs)
     if picked is not None:
         return picked
     print(f"\n{question}")
     for i, opt in enumerate(options, 1):
         print(f"  {i}. {opt}{'  (default)' if opt in default else ''}")
+        if blurbs and opt in blurbs:
+            print(f"     {DIM}{blurbs[opt]}{RESET}")
     ans = input(f"choices, comma-separated [default: {','.join(default)}]: ").strip()
     if not ans:
         return default
@@ -804,9 +852,19 @@ def _run_wizard(root: Path) -> argparse.Namespace:
     print("(Prefer scripting this? `asdlc init --help` for the flags. Menus below use "
           "↑/↓ + enter/space; set ASDLC_WIZARD_PLAIN=1 to type answers instead.)\n")
     project = _prompt("Project name", root.name)
-    stack = _prompt("Stack (languages/frameworks — blank is fine)")
+    stack = _prompt("Describe your stack (languages/frameworks) in a few words")
     tools = _prompt_multi("Which agent tool(s) does this repo use?",
                            sorted(ADAPTER_TARGETS), ["claude-code"])
+    mcp_names = sorted(MCP_CATALOG)
+    mcp_choice = _prompt_multi(
+        "Install any MCP servers? Adds a pointer to .mcp.json — remote/OAuth "
+        "only, no secrets stored here; each person still authenticates in "
+        "their own agent tool afterwards (`asdlc mcp list` for details).",
+        ["none", *mcp_names], ["none"],
+        blurbs={"none": "skip — run `asdlc mcp add <name>` later if needed",
+                **{n: MCP_CATALOG[n]["note"] for n in mcp_names}},
+    )
+    mcp_choice = [m for m in mcp_choice if m != "none"]
     ci = _prompt_choice("CI provider?", ["github", "gitlab", "none"], "github")
     sdd_choice = _prompt_choice(
         "SDD front-end? Installs the real tool via its own installer (npx/uv) "
@@ -817,7 +875,8 @@ def _run_wizard(root: Path) -> argparse.Namespace:
     )
     print()
     return argparse.Namespace(project=project or None, stack=stack or None,
-                               tools=tools, ci=ci, sdd=sdd_choice, force=False)
+                               tools=tools, ci=ci, sdd=sdd_choice, mcp=mcp_choice,
+                               force=False)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -852,6 +911,20 @@ def main(argv: list[str] | None = None) -> int:
 
     pd = sub.add_parser("doctor", help="report repo wiring")
     pd.set_defaults(func=cmd_doctor)
+
+    pm = sub.add_parser("mcp", help="manage this repo's .mcp.json against asdlc's MCP catalog")
+    mcp_sub = pm.add_subparsers(dest="mcp_cmd", required=True)
+
+    pml = mcp_sub.add_parser("list", help="show the catalog and what's configured here")
+    pml.set_defaults(func=cmd_mcp_list)
+
+    pma = mcp_sub.add_parser("add", help="add catalog entries to .mcp.json")
+    pma.add_argument("names", nargs="+", choices=sorted(MCP_CATALOG))
+    pma.set_defaults(func=cmd_mcp_add)
+
+    pmr = mcp_sub.add_parser("remove", help="remove entries from .mcp.json")
+    pmr.add_argument("names", nargs="+")
+    pmr.set_defaults(func=cmd_mcp_remove)
 
     args = p.parse_args(argv)
     return args.func(args)

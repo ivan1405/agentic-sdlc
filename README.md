@@ -182,6 +182,73 @@ them — asdlc never reads those paths, gates disabled or not.
 asdlc init --tools claude-code --sdd openspec --ci github
 ```
 
+## MCP servers
+
+`asdlc init` scaffolds an empty `.mcp.json` (`{"mcpServers": {}}`) — asdlc
+doesn't opine on which MCP servers a client needs, only ships a curated
+catalog of the common ones and a command to wire them up:
+
+```bash
+asdlc mcp list              # catalog + what's already configured here
+asdlc mcp add atlassian slack github
+asdlc mcp remove slack
+```
+
+| Catalog entry | Covers | Kind |
+|---|---|---|
+| `atlassian` | Jira, Confluence, Jira Service Management, Bitbucket, Compass (Cloud) | remote, OAuth |
+| `atlassian-self-hosted` | Jira & Confluence, self-hosted Data Center | local (`uvx`), env vars |
+| `github` | Repos, PRs, issues, code search | remote, OAuth |
+| `slack` | Channels, threads, posting messages | remote, OAuth |
+
+Most entries are vendor-hosted **remote** servers reached over OAuth —
+`asdlc mcp add` writes a `{"type": "http", "url": "..."}` pointer into
+`.mcp.json`, with no token or secret in that file, which is exactly why it's
+safe to commit.
+
+Data Center / self-hosted clients can't use OAuth against a vendor-hosted
+endpoint, so `atlassian-self-hosted` is a **local** entry instead: it runs
+[`mcp-atlassian`](https://github.com/sooperset/mcp-atlassian) via `uvx`
+(needs [uv](https://astral.sh/uv) on the client's PATH — asdlc's own
+dependency for that choice, not asdlc's), and every value that's either
+secret or specific to that client's install — `JIRA_URL`,
+`JIRA_PERSONAL_TOKEN`, `CONFLUENCE_URL`, `CONFLUENCE_PERSONAL_TOKEN` — is
+written as an `"${VAR}"` reference, never a literal. `asdlc mcp add` prints
+exactly which env vars to set; you (or the client) put the real values in
+your shell or a local `.env`, never in `.mcp.json`. Any future local entry
+(a database, an internal API) follows the same rule: `command`/`args` plus
+`${VAR}` references, never a literal credential or hostname.
+
+Catalog URLs are exactly the kind of vendor detail that drifts (see the SDD
+front-ends' installer flags above) — `asdlc mcp list` prints each entry's
+docs link; check it before rolling a change out to a client.
+
+### Authenticating a catalog entry
+
+Adding an entry to `.mcp.json` only registers the server — it doesn't
+authenticate anyone. For a **local** entry like `atlassian-self-hosted`, "auth" just
+means the env vars `asdlc mcp add` told you about are set wherever the agent
+tool runs; no browser flow. For a **remote** (OAuth) entry, that handshake
+happens **per person, inside your agent tool**, not through this file:
+
+1. Start (or restart) your agent tool in this repo — it reads `.mcp.json` at
+   startup.
+2. In Claude Code, run `/mcp`. It lists each configured server and, for an
+   unauthenticated one, gives you a link to open.
+3. That opens the vendor's OAuth consent screen in your browser. **Slack
+   specifically requires a workspace admin to approve the connection once**
+   — if you're not an admin, whoever is will get an approval request.
+4. Once approved, your agent tool stores the resulting token itself, locally,
+   outside the repo. `/mcp` then shows the server as connected.
+
+Two things worth knowing: the token never lands in `.mcp.json` (there's
+nothing secret to leak by committing it), but **every teammate has to run
+their own OAuth step once** — it doesn't propagate through git. And if the
+consent link errors out instead of connecting, it's usually a pending
+admin-approval step or an org policy blocking third-party app installs —
+check with whoever administers that workspace/org before assuming asdlc's
+config is wrong.
+
 ## Rollout
 
 Don't big-bang it. See [standard/04-adoption-playbook.md](standard/04-adoption-playbook.md).

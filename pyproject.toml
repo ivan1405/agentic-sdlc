@@ -26,6 +26,7 @@ include = ["asdlc*"]
 asdlc = [
     "gates/policy.yaml",
     "gates/presets/*.yaml",
+    "assets/mcp_catalog.json",
     "assets/templates/*.tpl",
     "assets/templates/kiro/*.tpl",
     "assets/templates/*.md",

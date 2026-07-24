@@ -22,30 +22,33 @@ def _answer(monkeypatch, answers: list[str]):
 
 
 def test_wizard_parses_multiselect_and_choice_by_number(monkeypatch, tmp_path):
-    _answer(monkeypatch, ["demo-project", "Python 3.12, FastAPI", "1,3", "2", "1"])
+    _answer(monkeypatch, ["demo-project", "Python 3.12, FastAPI", "1,3", "", "2", "1"])
     ns = cli._run_wizard(tmp_path)
     assert ns.project == "demo-project"
     assert ns.stack == "Python 3.12, FastAPI"
     assert ns.tools == ["claude-code", "copilot"]
+    assert ns.mcp == []  # blank -> "none" -> filtered out
     assert ns.ci == "gitlab"
     assert ns.sdd == "none"
     assert ns.force is False
 
 
 def test_wizard_parses_by_name_not_just_number(monkeypatch, tmp_path):
-    _answer(monkeypatch, ["", "", "codex,cursor", "none", "kiro"])
+    _answer(monkeypatch, ["", "", "codex,cursor", "atlassian", "none", "kiro"])
     ns = cli._run_wizard(tmp_path)
     assert ns.project == tmp_path.name  # blank -> default (repo dir name)
     assert ns.stack is None
     assert ns.tools == ["codex", "cursor"]
+    assert ns.mcp == ["atlassian"]
     assert ns.ci == "none"
     assert ns.sdd == "kiro"
 
 
 def test_wizard_blank_answers_use_defaults(monkeypatch, tmp_path):
-    _answer(monkeypatch, ["", "", "", "", ""])
+    _answer(monkeypatch, ["", "", "", "", "", ""])
     ns = cli._run_wizard(tmp_path)
     assert ns.tools == ["claude-code"]
+    assert ns.mcp == []
     assert ns.ci == "github"
     assert ns.sdd == "none"
 
@@ -100,10 +103,12 @@ def test_wizard_output_feeds_cmd_init_end_to_end(monkeypatch, tmp_path):
     subprocess.run(["git", "commit", "-qm", "init"], cwd=tmp_path, check=True)
 
     monkeypatch.setattr(cli, "repo_root", lambda start=None: tmp_path)
-    _answer(monkeypatch, ["demo", "", "1", "3", "1"])  # claude-code only, ci none, sdd none
+    # claude-code only, mcp: github, ci none, sdd none
+    _answer(monkeypatch, ["demo", "", "1", "github", "3", "1"])
     ns = cli._run_wizard(tmp_path)
     assert cli.cmd_init(ns) == 0
 
     assert (tmp_path / "CLAUDE.md").exists()
     assert not (tmp_path / "AGENTS.md").exists()  # claude-code alone: inlined into CLAUDE.md
     assert (tmp_path / ".claude" / "commands" / "propose.md").exists()
+    assert "github" in cli.mcp.read_mcp_json(tmp_path)["mcpServers"]
