@@ -15,13 +15,30 @@ Commands
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import re
+import select
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+# Arrow-key wizard input needs raw terminal access, which is platform-specific
+# and has no stdlib equivalent on the other OS — hence the try/except pair
+# instead of one import. _menu_supported() checks whichever of these landed.
+try:
+    import termios
+    import tty
+except ImportError:  # Windows
+    termios = None  # type: ignore[assignment]
+    tty = None  # type: ignore[assignment]
+
+try:
+    import msvcrt
+except ImportError:  # POSIX
+    msvcrt = None  # type: ignore[assignment]
 
 # The asset payload ships inside the package. Anything read at runtime must be
 # under ASSETS or gates/ — if it is not, it will not survive `pip install`.
@@ -60,6 +77,29 @@ NEXT_STEP_HINT = {
 }
 
 SDD_DISPLAY_NAME = {"openspec": "OpenSpec", "speckit": "Spec Kit", "bmad": "BMAD", "kiro": "Kiro"}
+
+# Display/choice order for --sdd and the wizard prompt — lightest-weight
+# front-end first, heaviest (BMAD's full agile simulation) last, Kiro at the
+# end since it's templates-only rather than an installed tool. Not sorted()
+# because alphabetical order doesn't track that gradient.
+SDD_CHOICES = ["none", "openspec", "speckit", "bmad", "kiro"]
+
+# Shown next to each option in the init wizard's SDD prompt — what the tool
+# actually is and the kind of repo it fits, so the choice isn't a guess from
+# a bare name. Kept short on purpose; full detail lives in each tool's docs.
+SDD_CHOICE_BLURB = {
+    "none": "no extra tool — keeps asdlc's own lightweight change/spec gates. "
+            "Good default for small repos or if you're not sold on a heavier method yet.",
+    "openspec": "lightweight change-folder workflow (proposal/specs/tasks), no phase gates, "
+                "30+ agent integrations. Fits fast-moving repos that want spec alignment "
+                "without process overhead.",
+    "speckit": "GitHub's structured spec -> plan -> tasks -> implement pipeline with checklists. "
+               "Fits feature work in existing systems and teams that want more rigor/review gates.",
+    "bmad": "full agile simulation — PM/architect/dev/QA agent personas, PRD/story workflow. "
+            "Fits larger or greenfield projects where you want role-based planning; heavier setup.",
+    "kiro": "templates only (no CLI) — steering files (product/tech/structure.md) for AWS Kiro IDE. "
+            "Fits teams already using Kiro; skip if you don't use that IDE.",
+}
 
 # Tools that read AGENTS.md natively. claude-code doesn't — it only reads
 # CLAUDE.md — so whether a repo's real context file is AGENTS.md or CLAUDE.md
@@ -539,10 +579,194 @@ def _prompt(question: str, default: str = "") -> str:
     return input(f"{question}{suffix}: ").strip() or default
 
 
-def _prompt_choice(question: str, options: list[str], default: str) -> str:
+# --- Arrow-key menu -----------------------------------------------------
+#
+# _menu_supported() gates this entirely: piped/redirected stdin (CI, the
+# test suite's mocked input()) or ASDLC_WIZARD_PLAIN=1 fall straight through
+# to the type-a-number prompts below, unchanged. The key-decoding and
+# cursor/selection transitions are pure functions so they're unit-testable
+# without a real terminal; only the render/raw-mode loop around them isn't
+# (same tradeoff test_wizard.py already made for the wizard's own TTY gate).
+
+def _menu_supported() -> bool:
+    if os.environ.get("ASDLC_WIZARD_PLAIN"):
+        return False
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        return False
+    return msvcrt is not None if os.name == "nt" else termios is not None
+
+
+@contextlib.contextmanager
+def _raw_mode():
+    if os.name == "nt":
+        yield
+        return
+    fd = sys.stdin.fileno()
+    old = termios.tcgetattr(fd)
+    try:
+        # cbreak, not setraw: raw mode also disables output post-processing
+        # (OPOST), so a bare "\n" stops implying a carriage return and every
+        # redrawn line drifts right of the last. cbreak only turns off
+        # canonical/echo input handling, which is all we need for one-key-
+        # at-a-time reads. (It also leaves ISIG on, so Ctrl-C raises
+        # KeyboardInterrupt normally instead of us having to fake it.)
+        tty.setcbreak(fd)
+        yield
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
+
+def _getch_posix() -> bytes:
+    fd = sys.stdin.fileno()
+    b = os.read(fd, 1)
+    # Arrow keys arrive as a 3-byte escape sequence (ESC [ A/B/C/D) sent back
+    # to back; a lone Escape keypress is just the one byte with nothing
+    # following, which the short select() timeout distinguishes.
+    if b == b"\x1b" and select.select([fd], [], [], 0.05)[0]:
+        b += os.read(fd, 1)
+        if b == b"\x1b[" and select.select([fd], [], [], 0.05)[0]:
+            b += os.read(fd, 1)
+    return b
+
+
+def _getch_windows() -> bytes:
+    b = msvcrt.getch()
+    if b in (b"\xe0", b"\x00"):  # arrow/function key prefix
+        b += msvcrt.getch()
+    return b
+
+
+def _decode_key(raw: bytes) -> str:
+    """Normalize a raw keypress — a POSIX escape sequence or a Windows
+    msvcrt.getch() pair — into UP/DOWN/ENTER/SPACE/QUIT. Anything else
+    decodes to "" and is ignored by the menu loop."""
+    if raw in (b"\r", b"\n"):
+        return "ENTER"
+    if raw == b" ":
+        return "SPACE"
+    if raw in (b"\x03", b"\x1b"):  # Ctrl-C, or Escape with nothing following
+        return "QUIT"
+    if raw in (b"\x1b[A", b"\xe0H", b"\x00H"):
+        return "UP"
+    if raw in (b"\x1b[B", b"\xe0P", b"\x00P"):
+        return "DOWN"
+    return ""
+
+
+def _read_key() -> str:
+    raw = _getch_windows() if os.name == "nt" else _getch_posix()
+    return _decode_key(raw)
+
+
+def _apply_key_single(cursor: int, key: str, count: int) -> tuple[int, str]:
+    """One step of the single-select menu: given the highlighted index and a
+    decoded key, returns (new_cursor, outcome) — outcome is 'move', 'confirm',
+    'quit', or 'noop'."""
+    if key == "UP":
+        return (cursor - 1) % count, "move"
+    if key == "DOWN":
+        return (cursor + 1) % count, "move"
+    if key == "ENTER":
+        return cursor, "confirm"
+    if key == "QUIT":
+        return cursor, "quit"
+    return cursor, "noop"
+
+
+def _apply_key_multi(cursor: int, selected: frozenset[int], key: str,
+                      count: int) -> tuple[int, frozenset[int], str]:
+    """Same idea as _apply_key_single, for the checkbox multi-select — SPACE
+    toggles the highlighted row in/out of `selected`."""
+    if key == "UP":
+        return (cursor - 1) % count, selected, "move"
+    if key == "DOWN":
+        return (cursor + 1) % count, selected, "move"
+    if key == "SPACE":
+        toggled = (selected - {cursor}) if cursor in selected else (selected | {cursor})
+        return cursor, toggled, "toggle"
+    if key == "ENTER":
+        return cursor, selected, "confirm"
+    if key == "QUIT":
+        return cursor, selected, "quit"
+    return cursor, selected, "noop"
+
+
+def _render_menu(prev_lines: int, question: str, options: list[str], cursor: int,
+                  selected: frozenset[int] | None, blurbs: dict[str, str] | None) -> int:
+    """Redraw the menu in place — clear what the previous call printed, then
+    print the current state — and return the new line count for next time."""
+    if prev_lines:
+        sys.stdout.write(f"\033[{prev_lines}A\r\033[J")
+    # One list entry per visual line — no embedded "\n"s — so len(rendered)
+    # below is an accurate line count for the next call's cursor-up.
+    rendered = ["", question]
+    for i, opt in enumerate(options):
+        pointer = "❯" if i == cursor else " "
+        box = "" if selected is None else ("[x] " if i in selected else "[ ] ")
+        style, reset = (GREEN, RESET) if i == cursor else ("", "")
+        rendered.append(f"  {style}{pointer} {box}{opt}{reset}")
+        if blurbs and opt in blurbs:
+            rendered.append(f"     {DIM}{blurbs[opt]}{RESET}")
+    hint = "space to toggle, enter to confirm" if selected is not None else "enter to confirm"
+    rendered.append(f"{DIM}(↑/↓ to move, {hint}){RESET}")
+    sys.stdout.write("\n".join(rendered) + "\n")
+    sys.stdout.flush()
+    return len(rendered)
+
+
+def _arrow_choice(question: str, options: list[str], default: str,
+                   blurbs: dict[str, str] | None = None) -> str | None:
+    """Interactive arrow-key single-select. Returns the chosen option, or
+    None if the terminal can't support it — callers fall back to the
+    type-a-number prompt in that case."""
+    if not _menu_supported():
+        return None
+    cursor = options.index(default) if default in options else 0
+    prev_lines = 0
+    try:
+        with _raw_mode():
+            while True:
+                prev_lines = _render_menu(prev_lines, question, options, cursor, None, blurbs)
+                cursor, outcome = _apply_key_single(cursor, _read_key(), len(options))
+                if outcome == "confirm":
+                    return options[cursor]
+                if outcome == "quit":
+                    return None
+    except Exception:
+        return None
+
+
+def _arrow_multi(question: str, options: list[str], default: list[str]) -> list[str] | None:
+    """Interactive arrow-key checkbox multi-select. Returns the picked
+    options, or None if the terminal can't support it."""
+    if not _menu_supported():
+        return None
+    cursor = 0
+    selected = frozenset(i for i, opt in enumerate(options) if opt in default)
+    prev_lines = 0
+    try:
+        with _raw_mode():
+            while True:
+                prev_lines = _render_menu(prev_lines, question, options, cursor, selected, None)
+                cursor, selected, outcome = _apply_key_multi(cursor, selected, _read_key(), len(options))
+                if outcome == "confirm":
+                    return [opt for i, opt in enumerate(options) if i in selected] or default
+                if outcome == "quit":
+                    return None
+    except Exception:
+        return None
+
+
+def _prompt_choice(question: str, options: list[str], default: str,
+                    blurbs: dict[str, str] | None = None) -> str:
+    picked = _arrow_choice(question, options, default, blurbs)
+    if picked is not None:
+        return picked
     print(f"\n{question}")
     for i, opt in enumerate(options, 1):
         print(f"  {i}. {opt}{'  (default)' if opt == default else ''}")
+        if blurbs and opt in blurbs:
+            print(f"     {DIM}{blurbs[opt]}{RESET}")
     ans = input(f"choice [1-{len(options)}, default {default}]: ").strip()
     if not ans:
         return default
@@ -555,6 +779,9 @@ def _prompt_choice(question: str, options: list[str], default: str) -> str:
 
 
 def _prompt_multi(question: str, options: list[str], default: list[str]) -> list[str]:
+    picked = _arrow_multi(question, options, default)
+    if picked is not None:
+        return picked
     print(f"\n{question}")
     for i, opt in enumerate(options, 1):
         print(f"  {i}. {opt}{'  (default)' if opt in default else ''}")
@@ -574,7 +801,8 @@ def _run_wizard(root: Path) -> argparse.Namespace:
     print(f"{GREEN}{_banner()}{RESET}")
     print()
     print("No flags given — let's set this repo up interactively.")
-    print("(Prefer scripting this? `asdlc init --help` for the flags.)\n")
+    print("(Prefer scripting this? `asdlc init --help` for the flags. Menus below use "
+          "↑/↓ + enter/space; set ASDLC_WIZARD_PLAIN=1 to type answers instead.)\n")
     project = _prompt("Project name", root.name)
     stack = _prompt("Stack (languages/frameworks — blank is fine)")
     tools = _prompt_multi("Which agent tool(s) does this repo use?",
@@ -584,7 +812,8 @@ def _run_wizard(root: Path) -> argparse.Namespace:
         "SDD front-end? Installs the real tool via its own installer (npx/uv) "
         "and disables asdlc's own spec gates for it — 'none' keeps asdlc's own "
         "gates on and installs nothing extra.",
-        ["none", *sorted(sdd.SDD_TOOLS), "kiro"], "none",
+        SDD_CHOICES, "none",
+        blurbs=SDD_CHOICE_BLURB,
     )
     print()
     return argparse.Namespace(project=project or None, stack=stack or None,
@@ -605,7 +834,7 @@ def main(argv: list[str] | None = None) -> int:
     pi.add_argument("--tools", nargs="+", default=["claude-code"],
                     choices=sorted(ADAPTER_TARGETS))
     pi.add_argument("--ci", default="github", choices=["github", "gitlab", "none"])
-    pi.add_argument("--sdd", default="none", choices=["none", *sorted(sdd.SDD_TOOLS), "kiro"],
+    pi.add_argument("--sdd", default="none", choices=SDD_CHOICES,
                     help="SDD methodology to install (shells out to its own installer; kiro is templates-only)")
     pi.add_argument("--force", action="store_true")
     pi.set_defaults(func=cmd_init)
