@@ -28,3 +28,22 @@ Then:
    reality (**drift-reconciliation** skill).
 8. Open a PR: title `<change-id>: <outcome>`, body = the proposal's Problem and
    Outcome, the REQ- IDs covered, and the regression surface you re-verified.
+   Check `.mcp.json`'s `mcpServers` first — if it has a `github` entry, use
+   the GitHub MCP tools to open the PR instead of assuming a `gh`/git CLI is
+   on PATH. No `github` entry: today's manual flow, unchanged.
+9. Jira handoff — only if `proposal.md`'s `Ticket:` field names one **and**
+   `.mcp.json` has an `atlassian` or `atlassian-self-hosted` entry. Once the
+   PR from step 8 is open, use the Atlassian MCP tools to: look at that
+   ticket's available transitions and move it to whichever one means "ready
+   for review" (never guess a status name that isn't an actual transition on
+   that ticket — ask a human if it's genuinely ambiguous), then comment on
+   the ticket with the PR link, saying it's done and ready for review. No
+   `Ticket:` value, or no atlassian* entry: skip this step entirely, nothing
+   to sync.
+10. This step never merges, approves, or skips a gate — it only opens the PR
+    and touches the ticket, after `asdlc verify` (step 6, including
+    `human-approval`'s named `Approved-by:`) is already green. Never merge
+    your own PR, same boundary as always.
+
+Exact tool names on the GitHub/Atlassian MCP servers may differ by version —
+treat your actual tool list as ground truth over the wording above.

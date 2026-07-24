@@ -16,5 +16,8 @@ Steps:
    guess at scope, and do not fill the template with plausible-sounding content.
 4. Draft `proposal.md`, then `spec.md`. Requirements get stable REQ- IDs,
    SHALL statements, and Given/When/Then scenarios including failure paths.
+   If `%%ARG%%` or the interview surfaced a Jira ticket, record its key/link
+   in `proposal.md`'s `Ticket:` field — `/implement` uses it to sync that
+   ticket back once a PR is raised. No ticket, leave it blank.
 5. Run `asdlc verify --stage spec` and fix what it reports.
 6. Stop. Show me the spec and wait. **Do not write design.md or any code yet.**

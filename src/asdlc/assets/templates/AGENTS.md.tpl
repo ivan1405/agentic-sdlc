@@ -52,7 +52,10 @@ Project-scoped MCP servers live in `.mcp.json` (empty by default — most agent
 tools that support MCP read this file). Run `asdlc mcp list` to see asdlc's
 curated catalog (Jira/Confluence, GitHub, Slack, ...) and `asdlc mcp add
 <name>` to wire one up; add only what this repo actually needs, and commit
-the file so every agent gets the same servers.
+the file so every agent gets the same servers. `/implement` picks these up
+automatically once configured — opens the PR via a `github` server, and
+syncs a linked Jira ticket via `atlassian`/`atlassian-self-hosted` — see
+`/implement` for exactly what.
 
 ## Conventions
 - <!-- 2-4 bullets, load-bearing only: naming, error handling, logging, etc. -->

@@ -8,6 +8,8 @@
 **Status:** draft <!-- draft | in-review | approved | implementing | done | archived -->
 **Requested by:**
 **Owner (human, accountable):**
+**Ticket:** <!-- Jira key/link, if any. /implement uses this to sync the ticket
+     once a github/atlassian MCP server is configured — leave blank otherwise. -->
 
 ## Problem
 <!-- Observable, present tense, no solution. Include evidence: ticket, metric, quote. -->
