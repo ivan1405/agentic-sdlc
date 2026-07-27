@@ -6,7 +6,7 @@ merges**. Works whether the client bought Claude Code, Codex, Copilot, Cursor,
 or nothing.
 
 ```bash
-pipx install .                       # or: PYTHONPATH=src python -m asdlc ...
+pipx install .                       # or: PYTHONPATH=src python3 -m asdlc ...
 asdlc init --tools claude-code codex --ci github
 asdlc new reject-empty-cart          # scaffold a change
 asdlc verify                         # the gates — same command locally and in CI
@@ -77,7 +77,7 @@ scaffolding to help agents pass it.
 ```bash
 bash tests/test_gates.sh        # 9 realistic agent mistakes, each blocked by the right gate
 bash tests/test_packaging.sh    # builds a wheel, installs it clean, drives the CLI from outside the tree
-python -m pytest tests/test_policy_parser.py   # zero-dep YAML fallback == PyYAML on shipped files
+python3 -m pytest tests/test_policy_parser.py  # zero-dep YAML fallback == PyYAML on shipped files
 ```
 
 A gate you have never seen fail is not a gate. Same for a claim you have never

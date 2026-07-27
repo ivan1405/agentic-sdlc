@@ -58,7 +58,11 @@ diverge, and a Linux-only test is a test the maintainer can't run locally.
   entry in `ADAPTER_TARGETS` (cli.py) plus one in the `TOOLS` tables of
   `commands.py` and `agents.py`. Only add tool/model fields where you have
   verified the target's schema against a real example — leave them out rather
-  than guess (see the note at the top of `agents.py`).
+  than guess (see the note at the top of `agents.py`, and record what you
+  verified in [docs/adapter-verification.md](docs/adapter-verification.md)).
+  `tests/test_adapters.py` checks every rendered file parses (TOML/YAML) and
+  pins the exact bytes with golden snapshots — regenerate them deliberately
+  with `ASDLC_UPDATE_GOLDEN=1` and review the diff.
 
 ## Versioning
 
