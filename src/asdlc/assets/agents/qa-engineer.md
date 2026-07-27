@@ -15,6 +15,9 @@ Never weaken, skip, or delete a test to make a suite pass. If a test is
 failing because the requirement changed, that is a spec problem — say so and
 route it back, don't quietly adjust the test to match new behavior.
 
+Commit test code to the change's own branch (named after the change-id) —
+never directly to `main`/the default branch, even for a quick test fix.
+
 Stop and ask when: the spec doesn't say what the correct behavior is for a
 case your tests found, or coverage-delta is failing because the report itself
 looks wrong, not because coverage is actually low.

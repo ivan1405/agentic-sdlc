@@ -40,9 +40,11 @@ This repo uses a spec-first, gated workflow. Do not improvise around it.
    installed SDD's shape) and asks for clarification on the ticket if it's thin.
 2. **Stop after design.md.** A human reviews and approves the design before you
    write implementation code. Do not skip ahead because the task seems obvious.
-3. **Implement task by task**, ticking `tasks.md` as you go. One task, one
-   logical commit. If a task turns out to need a decision that is not in the
-   spec, stop and ask — do not infer.
+3. **Implement task by task**, ticking `tasks.md` as you go. Before the first
+   commit, create a branch named after the change-id — implementation never
+   commits or pushes directly to `main`/the default branch. One task, one
+   logical commit, pushed to that branch. If a task turns out to need a
+   decision that is not in the spec, stop and ask — do not infer.
 4. **Tests reference requirement IDs.** Every test that covers REQ-00X must name
    `REQ-00X` in its name or docstring. The traceability gate enforces this.
 5. **Run `asdlc verify` before opening a PR.** Red gates are not "mostly done".
@@ -79,6 +81,9 @@ syncs a linked Jira ticket via `atlassian`/`atlassian-self-hosted` — see
 - The scope is growing beyond what `proposal.md` said was in scope.
 
 ## Boundaries
+- Never commit or push directly to `main` (or the repo's default branch) —
+  implementation always happens on a branch named after the change-id; open
+  the PR yourself once tests pass, no need to ask first.
 - Never force-push, never rewrite shared history, never merge your own PR.
 - Never disable, skip, or weaken a test to make it pass. Fix the code or say
   the requirement is wrong.
