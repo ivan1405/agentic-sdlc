@@ -36,8 +36,9 @@ except ImportError:  # POSIX
 
 
 GREEN, RED, YELLOW, DIM, RESET = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
+BOLD, CYAN, REVERSE = "\033[1m", "\033[36m", "\033[7m"
 if not sys.stdout.isatty() or os.environ.get("NO_COLOR"):
-    GREEN = RED = YELLOW = DIM = RESET = ""
+    GREEN = RED = YELLOW = DIM = RESET = BOLD = CYAN = REVERSE = ""
 
 
 # Built from centered pieces, not hand-counted spaces — a hardcoded ASCII-art
@@ -62,7 +63,11 @@ def _banner() -> str:
     return "\n".join(lines)
 
 
-def _prompt(question: str, default: str = "") -> str:
+def _prompt(question: str, default: str = "", *, step: tuple[int, int] | None = None) -> str:
+    if step is not None:
+        _step_header(question, step)
+        hint = f" [{default}]" if default else ""
+        return input(f"  {DIM}›{RESET}{hint}: ").strip() or default
     suffix = f" [{default}]" if default else ""
     return input(f"{question}{suffix}: ").strip() or default
 
@@ -135,6 +140,10 @@ def _decode_key(raw: bytes) -> str:
         return "UP"
     if raw in (b"\x1b[B", b"\xe0P", b"\x00P"):
         return "DOWN"
+    if raw in (b"a", b"A"):          # select-all shortcut (multi-select only)
+        return "ALL"
+    if raw in (b"n", b"N"):          # select-none shortcut (multi-select only)
+        return "NONE"
     return ""
 
 
@@ -158,17 +167,30 @@ def _apply_key_single(cursor: int, key: str, count: int) -> tuple[int, str]:
     return cursor, "noop"
 
 
-def _apply_key_multi(cursor: int, selected: frozenset[int], key: str,
-                     count: int) -> tuple[int, frozenset[int], str]:
+def _apply_key_multi(cursor: int, selected: frozenset[int], key: str, count: int,
+                     exclusive: frozenset[int] = frozenset()) -> tuple[int, frozenset[int], str]:
     """Same idea as _apply_key_single, for the checkbox multi-select — SPACE
-    toggles the highlighted row in/out of `selected`."""
+    toggles the highlighted row in/out of `selected`.
+
+    `exclusive` holds indices that are mutually exclusive with everything else
+    (e.g. a "none" sentinel): checking one clears the rest, and checking any
+    normal option clears the exclusive ones."""
     if key == "UP":
         return (cursor - 1) % count, selected, "move"
     if key == "DOWN":
         return (cursor + 1) % count, selected, "move"
     if key == "SPACE":
-        toggled = (selected - {cursor}) if cursor in selected else (selected | {cursor})
-        return cursor, toggled, "toggle"
+        if cursor in selected:
+            toggled = selected - {cursor}
+        elif cursor in exclusive:
+            toggled = frozenset({cursor})                 # exclusive on -> only it
+        else:
+            toggled = (selected | {cursor}) - exclusive   # normal on -> drop exclusives
+        return cursor, frozenset(toggled), "toggle"
+    if key == "ALL":
+        return cursor, frozenset(range(count)) - exclusive, "toggle"
+    if key == "NONE":
+        return cursor, frozenset(), "toggle"
     if key == "ENTER":
         return cursor, selected, "confirm"
     if key == "QUIT":
@@ -192,41 +214,133 @@ def _display_rows(line: str, cols: int) -> int:
     return -(-len(visible) // max(1, cols))  # ceil division
 
 
+def _vis(s: str) -> int:
+    """Visible width — ANSI colour codes take no columns."""
+    return len(_ANSI_RE.sub("", s))
+
+
+def _trunc(text: str, width: int) -> str:
+    """Truncate PLAIN text (no ANSI) to `width` visible columns, ellipsizing."""
+    return text if len(text) <= width else text[: max(0, width - 1)] + "…"
+
+
+def _wrap(text: str, width: int) -> list[str]:
+    """Greedy word-wrap PLAIN text to `width`; always at least one line."""
+    lines: list[str] = []
+    cur = ""
+    for word in text.split():
+        if cur and len(cur) + 1 + len(word) > width:
+            lines.append(cur)
+            cur = word
+        else:
+            cur = f"{cur} {word}" if cur else word
+    lines.append(cur)
+    return lines
+
+
+# --- Box drawing --------------------------------------------------------
+# Content is truncated to the inner width so nothing wraps — that keeps the
+# right border aligned and makes the in-place redraw a fixed, stable height.
+
+def _box_width() -> int:
+    return max(48, min(shutil.get_terminal_size((80, 24)).columns - 2, 78))
+
+
+def _row(inner: str, iw: int, highlight: bool = False) -> str:
+    body = inner + " " * max(0, iw - _vis(inner))       # pad by visible width
+    if highlight:
+        body = f"{REVERSE}{body}{RESET}"                 # full-row highlight (inner is plain)
+    return f"│ {body} │"
+
+
+def _topbar(title: str, step: tuple[int, int] | None, w: int) -> str:
+    left = f"─ {title} "
+    right = f" step {step[0]}/{step[1]} ─" if step else "─"
+    fill = "─" * max(0, (w - 2) - len(left) - len(right))
+    return "┌" + left + fill + right + "┐"
+
+
+def _botbar(hint: str, w: int) -> str:
+    if not hint:
+        return "└" + "─" * (w - 2) + "┘"
+    seg = f" {hint} "
+    fill = "─" * max(0, (w - 2) - _vis(seg))
+    return "└" + fill + seg + "┘"
+
+
 def _render_menu(prev_lines: int, question: str, options: list[str], cursor: int,
                  selected: frozenset[int] | None, blurbs: dict[str, str] | None,
-                 headers: dict[int, str] | None = None) -> int:
-    """Redraw the menu in place — clear what the previous call printed, then
-    print the current state — and return the physical-row count for next time.
+                 headers: dict[int, str] | None = None, *,
+                 title: str = "Agentic SDLC setup", step: tuple[int, int] | None = None) -> int:
+    """Redraw the framed menu in place and return its physical-row count.
 
-    `headers` maps an option index to a group label printed above it (the
-    category boxes). Headers are display-only — cursor/selection indices are
-    unaffected, so navigation logic never has to skip them."""
+    `headers` maps an option index to a category label printed above it; the
+    cursor row is highlighted; ✓/○ mark checkbox state. Cursor/selection indices
+    are unaffected by headers — navigation never has to skip them."""
     if prev_lines:
         sys.stdout.write(f"\033[{prev_lines}A\r\033[J")
-    rendered = ["", question]
+    w = _box_width()
+    iw = w - 4
+    multi = selected is not None
+    rows = [_topbar(title, step, w)]
+
+    # subtitle (wrapped), then a right-aligned selected-count on its own line
+    for line in _wrap(question, iw):
+        rows.append(_row(f"{DIM}{line}{RESET}", iw))
+    if multi:
+        tag = f"{len(selected)}/{len(options)} selected"
+        rows.append(_row(f"{DIM}{' ' * max(0, iw - len(tag))}{tag}{RESET}", iw))
+    rows.append(_row("", iw))
+
+    prefix = 2 + (2 if multi else 0)            # "❯ " (+ "✓ ")
     for i, opt in enumerate(options):
         if headers and i in headers:
             if i != 0:
-                rendered.append("")          # blank line separates the boxes
-            rendered.append(f"  {YELLOW}{headers[i]}{RESET}")
+                rows.append(_row("", iw))
+            rows.append(_row(f"{BOLD}{CYAN}{headers[i]}{RESET}", iw))
+        checked = multi and i in selected
         pointer = "❯" if i == cursor else " "
-        box = "" if selected is None else ("[x] " if i in selected else "[ ] ")
-        style, reset = (GREEN, RESET) if i == cursor else ("", "")
-        rendered.append(f"  {style}{pointer} {box}{opt}{reset}")
-        if blurbs and opt in blurbs:
-            rendered.append(f"     {DIM}{blurbs[opt]}{RESET}")
-    hint = "space to toggle, enter to confirm" if selected is not None else "enter to confirm"
-    rendered.append(f"{DIM}(↑/↓ to move, {hint}){RESET}")
-    sys.stdout.write("\n".join(rendered) + "\n")
+        name = _trunc(opt, iw - prefix)
+        if i == cursor:                          # plain inner; _row reverses the whole row
+            mark = ("✓ " if checked else "○ ") if multi else ""
+            rows.append(_row(f"{pointer} {mark}{name}", iw, highlight=True))
+        else:
+            mark = (f"{GREEN}✓{RESET} " if checked else f"{DIM}○{RESET} ") if multi else ""
+            rows.append(_row(f"{pointer} {mark}{name}", iw))
+        # Full description on its own wrapped, indented line(s) — never trimmed.
+        blurb = blurbs.get(opt, "") if blurbs else ""
+        if blurb:
+            for bl in _wrap(blurb, iw - 4):
+                rows.append(_row(f"    {DIM}{bl}{RESET}", iw))
+
+    rows.append(_row("", iw))
+    hint = ("↑/↓ move · space toggle · a all · n none · ⏎ confirm" if multi
+            else "↑/↓ move · ⏎ confirm")
+    rows.append(_botbar(_trunc(hint, w - 4), w))
+
+    sys.stdout.write("\n".join(rows) + "\n")
     sys.stdout.flush()
-    # Count physical rows (lines may wrap at the terminal width), so the next
-    # call's cursor-up clears exactly what we printed.
     cols = shutil.get_terminal_size((80, 24)).columns
-    return sum(_display_rows(line, cols) for line in rendered)
+    return sum(_display_rows(line, cols) for line in rows)
+
+
+def _confirm(title: str, pairs: list[tuple[str, str]]) -> bool:
+    """Print a boxed review summary and ask to proceed. Default is yes."""
+    w = _box_width()
+    iw = w - 4
+    keyw = max((len(k) for k, _ in pairs), default=0)
+    rows = [_topbar(title, None, w), _row("", iw)]
+    for k, v in pairs:
+        rows.append(_row(f"{DIM}{k.ljust(keyw)}{RESET}  {_trunc(v, iw - keyw - 2)}", iw))
+    rows.append(_row("", iw))
+    rows.append(_botbar("", w))
+    print("\n".join(rows))
+    return not input("Proceed? [Y/n]: ").strip().lower().startswith("n")
 
 
 def _arrow_choice(question: str, options: list[str], default: str,
-                  blurbs: dict[str, str] | None = None) -> str | None:
+                  blurbs: dict[str, str] | None = None, *,
+                  step: tuple[int, int] | None = None) -> str | None:
     """Interactive arrow-key single-select. Returns the chosen option, or
     None if the terminal can't support it — callers fall back to the
     type-a-number prompt in that case."""
@@ -237,7 +351,7 @@ def _arrow_choice(question: str, options: list[str], default: str,
     try:
         with _raw_mode():
             while True:
-                prev_lines = _render_menu(prev_lines, question, options, cursor, None, blurbs)
+                prev_lines = _render_menu(prev_lines, question, options, cursor, None, blurbs, step=step)
                 cursor, outcome = _apply_key_single(cursor, _read_key(), len(options))
                 if outcome == "confirm":
                     return options[cursor]
@@ -249,7 +363,9 @@ def _arrow_choice(question: str, options: list[str], default: str,
 
 def _arrow_multi(question: str, options: list[str], default: list[str],
                  blurbs: dict[str, str] | None = None,
-                 headers: dict[int, str] | None = None) -> list[str] | None:
+                 headers: dict[int, str] | None = None, *,
+                 step: tuple[int, int] | None = None,
+                 exclusive: frozenset[int] = frozenset()) -> list[str] | None:
     """Interactive arrow-key checkbox multi-select. Returns the picked
     options, or None if the terminal can't support it."""
     if not _menu_supported():
@@ -260,8 +376,10 @@ def _arrow_multi(question: str, options: list[str], default: list[str],
     try:
         with _raw_mode():
             while True:
-                prev_lines = _render_menu(prev_lines, question, options, cursor, selected, blurbs, headers)
-                cursor, selected, outcome = _apply_key_multi(cursor, selected, _read_key(), len(options))
+                prev_lines = _render_menu(prev_lines, question, options, cursor, selected,
+                                          blurbs, headers, step=step)
+                cursor, selected, outcome = _apply_key_multi(cursor, selected, _read_key(),
+                                                             len(options), exclusive)
                 if outcome == "confirm":
                     return [opt for i, opt in enumerate(options) if i in selected] or default
                 if outcome == "quit":
@@ -270,12 +388,18 @@ def _arrow_multi(question: str, options: list[str], default: list[str],
         return None
 
 
+def _step_header(question: str, step: tuple[int, int] | None) -> None:
+    tag = f"{DIM}step {step[0]}/{step[1]}{RESET}" if step else ""
+    print(f"\n{BOLD}{CYAN}{question}{RESET}  {tag}")
+
+
 def _prompt_choice(question: str, options: list[str], default: str,
-                   blurbs: dict[str, str] | None = None) -> str:
-    picked = _arrow_choice(question, options, default, blurbs)
+                   blurbs: dict[str, str] | None = None, *,
+                   step: tuple[int, int] | None = None) -> str:
+    picked = _arrow_choice(question, options, default, blurbs, step=step)
     if picked is not None:
         return picked
-    print(f"\n{question}")
+    _step_header(question, step)
     for i, opt in enumerate(options, 1):
         print(f"  {i}. {opt}{'  (default)' if opt == default else ''}")
         if blurbs and opt in blurbs:
@@ -293,14 +417,17 @@ def _prompt_choice(question: str, options: list[str], default: str,
 
 def _prompt_multi(question: str, options: list[str], default: list[str],
                   blurbs: dict[str, str] | None = None,
-                  headers: dict[int, str] | None = None) -> list[str]:
-    picked = _arrow_multi(question, options, default, blurbs, headers)
+                  headers: dict[int, str] | None = None, *,
+                  step: tuple[int, int] | None = None,
+                  exclusive: tuple[str, ...] = ()) -> list[str]:
+    excl_idx = frozenset(i for i, opt in enumerate(options) if opt in exclusive)
+    picked = _arrow_multi(question, options, default, blurbs, headers, step=step, exclusive=excl_idx)
     if picked is not None:
         return picked
-    print(f"\n{question}")
+    _step_header(question, step)
     for i, opt in enumerate(options, 1):
         if headers and (i - 1) in headers:
-            print(f"\n  {YELLOW}{headers[i - 1]}{RESET}")
+            print(f"\n  {BOLD}{CYAN}{headers[i - 1]}{RESET}")
         print(f"  {i}. {opt}{'  (default)' if opt in default else ''}")
         if blurbs and opt in blurbs:
             print(f"     {DIM}{blurbs[opt]}{RESET}")
@@ -313,4 +440,7 @@ def _prompt_multi(question: str, options: list[str], default: list[str],
             picked.append(options[int(tok) - 1])
         elif tok in options:
             picked.append(tok)
+    # A real choice cancels an exclusive sentinel ("none"), same as the menu.
+    if any(p not in exclusive for p in picked):
+        picked = [p for p in picked if p not in exclusive]
     return picked or default

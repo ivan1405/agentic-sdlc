@@ -611,21 +611,22 @@ def cmd_mcp_remove(args: argparse.Namespace) -> int:
 def _run_wizard(root: Path) -> argparse.Namespace:
     print(f"{GREEN}{tui._banner()}{RESET}")
     print()
-    print("No flags given — let's set this repo up interactively.")
-    print("(Prefer scripting this? `asdlc init --help` for the flags. Menus below use "
-          "↑/↓ + enter/space; set ASDLC_WIZARD_PLAIN=1 to type answers instead.)\n")
-    project = tui._prompt("Project name", root.name)
-    stack = tui._prompt("Describe your stack (languages/frameworks) in a few words")
+    print("No flags? Let's set this repo up interactively.")
+    print(f"{DIM}(Scripting it instead? `asdlc init --help`. Menus: ↑/↓ move · space "
+          f"toggle · a all · n none · enter confirm; ASDLC_WIZARD_PLAIN=1 to type answers.){RESET}")
+    N = 7
+    project = tui._prompt("Project name", root.name, step=(1, N))
+    stack = tui._prompt("Describe your stack (languages/frameworks) in a few words", step=(2, N))
     tools = tui._prompt_multi("Which agent tool(s) does this repo use?",
-                              sorted(adapters.TOOL_NAMES), ["claude-code"])
+                              sorted(adapters.TOOL_NAMES), ["claude-code"], step=(3, N))
     mcp_names = sorted(MCP_CATALOG)
     mcp_choice = tui._prompt_multi(
-        "Install any MCP servers? Adds a pointer to .mcp.json — remote/OAuth "
-        "only, no secrets stored here; each person still authenticates in "
-        "their own agent tool afterwards (`asdlc mcp list` for details).",
+        "Install any MCP servers? Pointers only — no secrets stored; each person "
+        "authenticates in their own agent tool afterwards.",
         ["none", *mcp_names], ["none"],
         blurbs={"none": "skip — run `asdlc mcp add <name>` later if needed",
                 **{n: MCP_CATALOG[n]["note"] for n in mcp_names}},
+        step=(4, N), exclusive=("none",),
     )
     mcp_choice = [m for m in mcp_choice if m != "none"]
     # Present the packs grouped into category boxes, ordered as grouped() dictates.
@@ -636,21 +637,32 @@ def _run_wizard(root: Path) -> argparse.Namespace:
         practice_headers[len(ordered_practices)] = label
         ordered_practices += [p.name for p in members]
     practice_choice = tui._prompt_multi(
-        "Which engineering practices to install? They land in docs/practices/ "
-        "and get linked from your context file. Core packs are pre-selected; "
-        "add domain ones by the nature of the project.",
+        "Which engineering practices to install? Core is pre-selected; "
+        "add domain packs by the nature of the project.",
         ordered_practices, CORE_PRACTICES,
         blurbs={p.name: p.summary for p in packs},
-        headers=practice_headers,
+        headers=practice_headers, step=(5, N),
     )
-    ci = tui._prompt_choice("CI provider?", ["github", "gitlab", "none"], "github")
+    ci = tui._prompt_choice("CI provider?", ["github", "gitlab", "none"], "github", step=(6, N))
     sdd_choice = tui._prompt_choice(
-        "SDD front-end? Installs the real tool via its own installer (npx/uv) "
-        "and disables asdlc's own spec gates for it — 'none' keeps asdlc's own "
-        "gates on and installs nothing extra.",
-        SDD_CHOICES, "none",
-        blurbs=SDD_CHOICE_BLURB,
+        "SDD front-end? Installs the real tool via its own installer and disables "
+        "asdlc's own spec gates for it — 'none' keeps asdlc's gates on.",
+        SDD_CHOICES, "none", blurbs=SDD_CHOICE_BLURB, step=(7, N),
     )
+    # Review before anything is written.
+    print()
+    summary = [
+        ("project", project or root.name),
+        ("stack", stack or "(fill in later)"),
+        ("tools", ", ".join(tools)),
+        ("mcp", ", ".join(mcp_choice) or "none"),
+        ("practices", f"{len(practice_choice)} pack(s)" if practice_choice else "none"),
+        ("ci", ci),
+        ("sdd", sdd_choice),
+    ]
+    if not tui._confirm("Review setup", summary):
+        print(f"{YELLOW}Setup cancelled — nothing was written.{RESET}")
+        raise SystemExit(0)
     print()
     return argparse.Namespace(project=project or None, stack=stack or None,
                                tools=tools, ci=ci, sdd=sdd_choice, mcp=mcp_choice,

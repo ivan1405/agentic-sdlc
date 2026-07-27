@@ -30,6 +30,12 @@ release is MAJOR if it can turn a previously-green PR red.
   policy tied to the "can this turn a green PR red?" rule.
 
 ### Changed
+- Reworked the `asdlc init` wizard UX: menus now render in a framed box with a
+  step counter (step N of 7), a live selected-count, ✓/○ marks, a highlighted
+  cursor row, bold/cyan category headers, and a footer with `a` (all) / `n`
+  (none) shortcuts. The flow ends with a **Review setup** summary and a
+  Proceed? [Y/n] confirmation before anything is written. Selection behavior is
+  unchanged.
 - `asdlc init` default practice install is now **core only** (was: all packs) —
   domain packs are opt-in. MINOR: practices are guidance (no gate), and an
   existing repo's persisted selection is still honored on re-init, so no
