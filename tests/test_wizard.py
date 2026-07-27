@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from asdlc import cli  # noqa: E402
+from asdlc import cli, tui  # noqa: E402
 
 
 def _answer(monkeypatch, answers: list[str]):
@@ -54,42 +54,42 @@ def test_wizard_blank_answers_use_defaults(monkeypatch, tmp_path):
 
 
 def test_decode_key_recognizes_posix_and_windows_arrow_sequences():
-    assert cli._decode_key(b"\x1b[A") == "UP"
-    assert cli._decode_key(b"\xe0H") == "UP"
-    assert cli._decode_key(b"\x00H") == "UP"
-    assert cli._decode_key(b"\x1b[B") == "DOWN"
-    assert cli._decode_key(b"\xe0P") == "DOWN"
-    assert cli._decode_key(b"\r") == "ENTER"
-    assert cli._decode_key(b" ") == "SPACE"
-    assert cli._decode_key(b"\x1b") == "QUIT"  # bare Escape, no sequence following
-    assert cli._decode_key(b"\x03") == "QUIT"  # Ctrl-C
-    assert cli._decode_key(b"x") == ""  # unrecognized keys are ignored
+    assert tui._decode_key(b"\x1b[A") == "UP"
+    assert tui._decode_key(b"\xe0H") == "UP"
+    assert tui._decode_key(b"\x00H") == "UP"
+    assert tui._decode_key(b"\x1b[B") == "DOWN"
+    assert tui._decode_key(b"\xe0P") == "DOWN"
+    assert tui._decode_key(b"\r") == "ENTER"
+    assert tui._decode_key(b" ") == "SPACE"
+    assert tui._decode_key(b"\x1b") == "QUIT"  # bare Escape, no sequence following
+    assert tui._decode_key(b"\x03") == "QUIT"  # Ctrl-C
+    assert tui._decode_key(b"x") == ""  # unrecognized keys are ignored
 
 
 def test_apply_key_single_moves_wraps_and_confirms():
-    assert cli._apply_key_single(0, "DOWN", 3) == (1, "move")
-    assert cli._apply_key_single(2, "DOWN", 3) == (0, "move")  # wraps past the end
-    assert cli._apply_key_single(0, "UP", 3) == (2, "move")  # wraps before the start
-    assert cli._apply_key_single(1, "ENTER", 3) == (1, "confirm")
-    assert cli._apply_key_single(1, "QUIT", 3) == (1, "quit")
-    assert cli._apply_key_single(1, "", 3) == (1, "noop")
+    assert tui._apply_key_single(0, "DOWN", 3) == (1, "move")
+    assert tui._apply_key_single(2, "DOWN", 3) == (0, "move")  # wraps past the end
+    assert tui._apply_key_single(0, "UP", 3) == (2, "move")  # wraps before the start
+    assert tui._apply_key_single(1, "ENTER", 3) == (1, "confirm")
+    assert tui._apply_key_single(1, "QUIT", 3) == (1, "quit")
+    assert tui._apply_key_single(1, "", 3) == (1, "noop")
 
 
 def test_apply_key_multi_toggles_selection_independent_of_cursor():
-    cursor, selected, outcome = cli._apply_key_multi(0, frozenset(), "SPACE", 3)
+    cursor, selected, outcome = tui._apply_key_multi(0, frozenset(), "SPACE", 3)
     assert (cursor, selected, outcome) == (0, frozenset({0}), "toggle")
-    cursor, selected, outcome = cli._apply_key_multi(0, selected, "SPACE", 3)
+    cursor, selected, outcome = tui._apply_key_multi(0, selected, "SPACE", 3)
     assert (cursor, selected, outcome) == (0, frozenset(), "toggle")  # toggles back off
-    cursor, selected, outcome = cli._apply_key_multi(1, frozenset({0}), "DOWN", 3)
+    cursor, selected, outcome = tui._apply_key_multi(1, frozenset({0}), "DOWN", 3)
     assert (cursor, selected, outcome) == (2, frozenset({0}), "move")  # move leaves selection alone
-    assert cli._apply_key_multi(1, frozenset({0}), "ENTER", 3) == (1, frozenset({0}), "confirm")
-    assert cli._apply_key_multi(1, frozenset({0}), "QUIT", 3) == (1, frozenset({0}), "quit")
+    assert tui._apply_key_multi(1, frozenset({0}), "ENTER", 3) == (1, frozenset({0}), "confirm")
+    assert tui._apply_key_multi(1, frozenset({0}), "QUIT", 3) == (1, frozenset({0}), "quit")
 
 
 def test_arrow_menus_fall_back_to_none_when_not_a_tty(monkeypatch):
     monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: False)
-    assert cli._arrow_choice("q?", ["a", "b"], "a") is None
-    assert cli._arrow_multi("q?", ["a", "b"], ["a"]) is None
+    assert tui._arrow_choice("q?", ["a", "b"], "a") is None
+    assert tui._arrow_multi("q?", ["a", "b"], ["a"]) is None
 
 
 def test_wizard_output_feeds_cmd_init_end_to_end(monkeypatch, tmp_path):

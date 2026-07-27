@@ -15,38 +15,23 @@ Commands
 from __future__ import annotations
 
 import argparse
-import contextlib
 import json
 import os
 import re
-import select
 import shutil
 import subprocess
 import sys
 from pathlib import Path
-
-# Arrow-key wizard input needs raw terminal access, which is platform-specific
-# and has no stdlib equivalent on the other OS — hence the try/except pair
-# instead of one import. _menu_supported() checks whichever of these landed.
-try:
-    import termios
-    import tty
-except ImportError:  # Windows
-    termios = None  # type: ignore[assignment]
-    tty = None  # type: ignore[assignment]
-
-try:
-    import msvcrt
-except ImportError:  # POSIX
-    msvcrt = None  # type: ignore[assignment]
 
 # The asset payload ships inside the package. Anything read at runtime must be
 # under ASSETS or gates/ — if it is not, it will not survive `pip install`.
 PKG = Path(__file__).resolve().parent
 ASSETS = PKG / "assets"
 
-from asdlc import agents, commands, mcp, sdd
+from asdlc import agents, commands, mcp, sdd, tui
 from asdlc.gates.checks import ALL_CHECKS, CheckResult, Context, load_policy
+# ANSI colour constants live with the wizard's other terminal machinery in tui.
+from asdlc.tui import DIM, GREEN, RED, RESET, YELLOW
 
 MCP_CATALOG = mcp.load_catalog(ASSETS)
 
@@ -168,10 +153,6 @@ def _disable_checks(policy_text: str, names: list[str]) -> str:
         )
     return policy_text
 
-GREEN, RED, YELLOW, DIM, RESET = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
-if not sys.stdout.isatty() or os.environ.get("NO_COLOR"):
-    GREEN = RED = YELLOW = DIM = RESET = ""
-
 
 # --------------------------------------------------------------------------- #
 # helpers
@@ -258,22 +239,22 @@ def cmd_init(args: argparse.Namespace) -> int:
     context_tpl = context_tpl.replace("{{CHANGES_DIR}}", changes_dir).replace("{{SPECS_DIR}}", specs_dir)
     context_tpl = context_tpl.replace("{{WORKFLOW_NOTE}}", _workflow_note(args.sdd))
 
-    agents = root / "AGENTS.md"
+    agents_md = root / "AGENTS.md"
     if not inline_into_claude:
-        if not agents.exists() or args.force:
+        if not agents_md.exists() or args.force:
             note = ("It is read natively by Codex, Cursor, Copilot, Gemini CLI, Aider, "
                      "Zed, Windsurf and others. Claude Code never reads this file directly "
                      "— it only reads CLAUDE.md — so `asdlc init --tools claude-code` "
                      "generates a one-line `@AGENTS.md` import there. One source of truth "
                      "either way.")
-            agents.write_text(context_tpl.replace("{{FILE_NOTE}}", note))
+            agents_md.write_text(context_tpl.replace("{{FILE_NOTE}}", note))
             print(f"  {GREEN}+{RESET} AGENTS.md                     (fill in the TODOs — this is the context contract)")
-    elif agents.exists():
+    elif agents_md.exists():
         # A previous `--tools` combo needed the AGENTS.md hub; this one
         # doesn't. Leaving it behind means it silently goes stale forever —
         # nothing would ever write to it again.
         if args.force:
-            agents.unlink()
+            agents_md.unlink()
             print(f"  {RED}-{RESET} AGENTS.md                     (removed — content is now inlined into CLAUDE.md instead)")
         else:
             print(f"  {YELLOW}!{RESET} AGENTS.md still exists but nothing reads it now that claude-code is "
@@ -594,269 +575,22 @@ def cmd_mcp_remove(args: argparse.Namespace) -> int:
 # --------------------------------------------------------------------------- #
 # setup wizard — only for `asdlc init` with zero flags, at a real terminal.
 # Anything scripted (CI, tests, `--tools ...`) always goes through argparse
-# untouched below; this never changes what a flag-driven invocation does.
+# untouched below; this never changes what a flag-driven invocation does. The
+# terminal/menu primitives it drives live in tui.py; only the catalog-aware
+# orchestration stays here.
 # --------------------------------------------------------------------------- #
-# Built from centered pieces, not hand-counted spaces — a hardcoded ASCII-art
-# string is one string-length change away from misaligned borders.
-_ASDLC_LETTERS = {
-    "A": [" █████╗ ", "██╔══██╗", "███████║", "██╔══██║", "██║  ██║", "╚═╝  ╚═╝"],
-    "S": ["███████╗", "██╔════╝", "███████╗", "╚════██║", "███████║", "╚══════╝"],
-    "D": ["██████╗ ", "██╔══██╗", "██║  ██║", "██║  ██║", "██████╔╝", "╚═════╝ "],
-    "L": ["██╗     ", "██║     ", "██║     ", "██║     ", "███████╗", "╚══════╝"],
-    "C": [" ██████╗", "██╔════╝", "██║     ", "██║     ", "╚██████╗", " ╚═════╝"],
-}
-
-
-def _banner() -> str:
-    art_rows = ["".join(_ASDLC_LETTERS[ch][r] for ch in "ASDLC") for r in range(6)]
-    tagline = "Agentic SDLC — setup wizard"
-    width = max(len(r) for r in art_rows) + 4
-    top, bottom = "╔" + "═" * width + "╗", "╚" + "═" * width + "╝"
-    blank = f"║{' ' * width}║"
-    lines = [top, blank, *(f"║{r.center(width)}║" for r in art_rows),
-              blank, f"║{tagline.center(width)}║", blank, bottom]
-    return "\n".join(lines)
-
-
-def _prompt(question: str, default: str = "") -> str:
-    suffix = f" [{default}]" if default else ""
-    return input(f"{question}{suffix}: ").strip() or default
-
-
-# --- Arrow-key menu -----------------------------------------------------
-#
-# _menu_supported() gates this entirely: piped/redirected stdin (CI, the
-# test suite's mocked input()) or ASDLC_WIZARD_PLAIN=1 fall straight through
-# to the type-a-number prompts below, unchanged. The key-decoding and
-# cursor/selection transitions are pure functions so they're unit-testable
-# without a real terminal; only the render/raw-mode loop around them isn't
-# (same tradeoff test_wizard.py already made for the wizard's own TTY gate).
-
-def _menu_supported() -> bool:
-    if os.environ.get("ASDLC_WIZARD_PLAIN"):
-        return False
-    if not (sys.stdin.isatty() and sys.stdout.isatty()):
-        return False
-    return msvcrt is not None if os.name == "nt" else termios is not None
-
-
-@contextlib.contextmanager
-def _raw_mode():
-    if os.name == "nt":
-        yield
-        return
-    fd = sys.stdin.fileno()
-    old = termios.tcgetattr(fd)
-    try:
-        # cbreak, not setraw: raw mode also disables output post-processing
-        # (OPOST), so a bare "\n" stops implying a carriage return and every
-        # redrawn line drifts right of the last. cbreak only turns off
-        # canonical/echo input handling, which is all we need for one-key-
-        # at-a-time reads. (It also leaves ISIG on, so Ctrl-C raises
-        # KeyboardInterrupt normally instead of us having to fake it.)
-        tty.setcbreak(fd)
-        yield
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old)
-
-
-def _getch_posix() -> bytes:
-    fd = sys.stdin.fileno()
-    b = os.read(fd, 1)
-    # Arrow keys arrive as a 3-byte escape sequence (ESC [ A/B/C/D) sent back
-    # to back; a lone Escape keypress is just the one byte with nothing
-    # following, which the short select() timeout distinguishes.
-    if b == b"\x1b" and select.select([fd], [], [], 0.05)[0]:
-        b += os.read(fd, 1)
-        if b == b"\x1b[" and select.select([fd], [], [], 0.05)[0]:
-            b += os.read(fd, 1)
-    return b
-
-
-def _getch_windows() -> bytes:
-    b = msvcrt.getch()
-    if b in (b"\xe0", b"\x00"):  # arrow/function key prefix
-        b += msvcrt.getch()
-    return b
-
-
-def _decode_key(raw: bytes) -> str:
-    """Normalize a raw keypress — a POSIX escape sequence or a Windows
-    msvcrt.getch() pair — into UP/DOWN/ENTER/SPACE/QUIT. Anything else
-    decodes to "" and is ignored by the menu loop."""
-    if raw in (b"\r", b"\n"):
-        return "ENTER"
-    if raw == b" ":
-        return "SPACE"
-    if raw in (b"\x03", b"\x1b"):  # Ctrl-C, or Escape with nothing following
-        return "QUIT"
-    if raw in (b"\x1b[A", b"\xe0H", b"\x00H"):
-        return "UP"
-    if raw in (b"\x1b[B", b"\xe0P", b"\x00P"):
-        return "DOWN"
-    return ""
-
-
-def _read_key() -> str:
-    raw = _getch_windows() if os.name == "nt" else _getch_posix()
-    return _decode_key(raw)
-
-
-def _apply_key_single(cursor: int, key: str, count: int) -> tuple[int, str]:
-    """One step of the single-select menu: given the highlighted index and a
-    decoded key, returns (new_cursor, outcome) — outcome is 'move', 'confirm',
-    'quit', or 'noop'."""
-    if key == "UP":
-        return (cursor - 1) % count, "move"
-    if key == "DOWN":
-        return (cursor + 1) % count, "move"
-    if key == "ENTER":
-        return cursor, "confirm"
-    if key == "QUIT":
-        return cursor, "quit"
-    return cursor, "noop"
-
-
-def _apply_key_multi(cursor: int, selected: frozenset[int], key: str,
-                      count: int) -> tuple[int, frozenset[int], str]:
-    """Same idea as _apply_key_single, for the checkbox multi-select — SPACE
-    toggles the highlighted row in/out of `selected`."""
-    if key == "UP":
-        return (cursor - 1) % count, selected, "move"
-    if key == "DOWN":
-        return (cursor + 1) % count, selected, "move"
-    if key == "SPACE":
-        toggled = (selected - {cursor}) if cursor in selected else (selected | {cursor})
-        return cursor, toggled, "toggle"
-    if key == "ENTER":
-        return cursor, selected, "confirm"
-    if key == "QUIT":
-        return cursor, selected, "quit"
-    return cursor, selected, "noop"
-
-
-def _render_menu(prev_lines: int, question: str, options: list[str], cursor: int,
-                  selected: frozenset[int] | None, blurbs: dict[str, str] | None) -> int:
-    """Redraw the menu in place — clear what the previous call printed, then
-    print the current state — and return the new line count for next time."""
-    if prev_lines:
-        sys.stdout.write(f"\033[{prev_lines}A\r\033[J")
-    # One list entry per visual line — no embedded "\n"s — so len(rendered)
-    # below is an accurate line count for the next call's cursor-up.
-    rendered = ["", question]
-    for i, opt in enumerate(options):
-        pointer = "❯" if i == cursor else " "
-        box = "" if selected is None else ("[x] " if i in selected else "[ ] ")
-        style, reset = (GREEN, RESET) if i == cursor else ("", "")
-        rendered.append(f"  {style}{pointer} {box}{opt}{reset}")
-        if blurbs and opt in blurbs:
-            rendered.append(f"     {DIM}{blurbs[opt]}{RESET}")
-    hint = "space to toggle, enter to confirm" if selected is not None else "enter to confirm"
-    rendered.append(f"{DIM}(↑/↓ to move, {hint}){RESET}")
-    sys.stdout.write("\n".join(rendered) + "\n")
-    sys.stdout.flush()
-    return len(rendered)
-
-
-def _arrow_choice(question: str, options: list[str], default: str,
-                   blurbs: dict[str, str] | None = None) -> str | None:
-    """Interactive arrow-key single-select. Returns the chosen option, or
-    None if the terminal can't support it — callers fall back to the
-    type-a-number prompt in that case."""
-    if not _menu_supported():
-        return None
-    cursor = options.index(default) if default in options else 0
-    prev_lines = 0
-    try:
-        with _raw_mode():
-            while True:
-                prev_lines = _render_menu(prev_lines, question, options, cursor, None, blurbs)
-                cursor, outcome = _apply_key_single(cursor, _read_key(), len(options))
-                if outcome == "confirm":
-                    return options[cursor]
-                if outcome == "quit":
-                    return None
-    except Exception:
-        return None
-
-
-def _arrow_multi(question: str, options: list[str], default: list[str],
-                  blurbs: dict[str, str] | None = None) -> list[str] | None:
-    """Interactive arrow-key checkbox multi-select. Returns the picked
-    options, or None if the terminal can't support it."""
-    if not _menu_supported():
-        return None
-    cursor = 0
-    selected = frozenset(i for i, opt in enumerate(options) if opt in default)
-    prev_lines = 0
-    try:
-        with _raw_mode():
-            while True:
-                prev_lines = _render_menu(prev_lines, question, options, cursor, selected, blurbs)
-                cursor, selected, outcome = _apply_key_multi(cursor, selected, _read_key(), len(options))
-                if outcome == "confirm":
-                    return [opt for i, opt in enumerate(options) if i in selected] or default
-                if outcome == "quit":
-                    return None
-    except Exception:
-        return None
-
-
-def _prompt_choice(question: str, options: list[str], default: str,
-                    blurbs: dict[str, str] | None = None) -> str:
-    picked = _arrow_choice(question, options, default, blurbs)
-    if picked is not None:
-        return picked
-    print(f"\n{question}")
-    for i, opt in enumerate(options, 1):
-        print(f"  {i}. {opt}{'  (default)' if opt == default else ''}")
-        if blurbs and opt in blurbs:
-            print(f"     {DIM}{blurbs[opt]}{RESET}")
-    ans = input(f"choice [1-{len(options)}, default {default}]: ").strip()
-    if not ans:
-        return default
-    if ans.isdigit() and 1 <= int(ans) <= len(options):
-        return options[int(ans) - 1]
-    if ans in options:
-        return ans
-    print(f"  {YELLOW}unrecognized — using default: {default}{RESET}")
-    return default
-
-
-def _prompt_multi(question: str, options: list[str], default: list[str],
-                   blurbs: dict[str, str] | None = None) -> list[str]:
-    picked = _arrow_multi(question, options, default, blurbs)
-    if picked is not None:
-        return picked
-    print(f"\n{question}")
-    for i, opt in enumerate(options, 1):
-        print(f"  {i}. {opt}{'  (default)' if opt in default else ''}")
-        if blurbs and opt in blurbs:
-            print(f"     {DIM}{blurbs[opt]}{RESET}")
-    ans = input(f"choices, comma-separated [default: {','.join(default)}]: ").strip()
-    if not ans:
-        return default
-    picked = []
-    for tok in (t.strip() for t in ans.split(",")):
-        if tok.isdigit() and 1 <= int(tok) <= len(options):
-            picked.append(options[int(tok) - 1])
-        elif tok in options:
-            picked.append(tok)
-    return picked or default
-
-
 def _run_wizard(root: Path) -> argparse.Namespace:
-    print(f"{GREEN}{_banner()}{RESET}")
+    print(f"{GREEN}{tui._banner()}{RESET}")
     print()
     print("No flags given — let's set this repo up interactively.")
     print("(Prefer scripting this? `asdlc init --help` for the flags. Menus below use "
           "↑/↓ + enter/space; set ASDLC_WIZARD_PLAIN=1 to type answers instead.)\n")
-    project = _prompt("Project name", root.name)
-    stack = _prompt("Describe your stack (languages/frameworks) in a few words")
-    tools = _prompt_multi("Which agent tool(s) does this repo use?",
-                           sorted(ADAPTER_TARGETS), ["claude-code"])
+    project = tui._prompt("Project name", root.name)
+    stack = tui._prompt("Describe your stack (languages/frameworks) in a few words")
+    tools = tui._prompt_multi("Which agent tool(s) does this repo use?",
+                              sorted(ADAPTER_TARGETS), ["claude-code"])
     mcp_names = sorted(MCP_CATALOG)
-    mcp_choice = _prompt_multi(
+    mcp_choice = tui._prompt_multi(
         "Install any MCP servers? Adds a pointer to .mcp.json — remote/OAuth "
         "only, no secrets stored here; each person still authenticates in "
         "their own agent tool afterwards (`asdlc mcp list` for details).",
@@ -865,8 +599,8 @@ def _run_wizard(root: Path) -> argparse.Namespace:
                 **{n: MCP_CATALOG[n]["note"] for n in mcp_names}},
     )
     mcp_choice = [m for m in mcp_choice if m != "none"]
-    ci = _prompt_choice("CI provider?", ["github", "gitlab", "none"], "github")
-    sdd_choice = _prompt_choice(
+    ci = tui._prompt_choice("CI provider?", ["github", "gitlab", "none"], "github")
+    sdd_choice = tui._prompt_choice(
         "SDD front-end? Installs the real tool via its own installer (npx/uv) "
         "and disables asdlc's own spec gates for it — 'none' keeps asdlc's own "
         "gates on and installs nothing extra.",

@@ -2,8 +2,32 @@
 name = "asdlc"
 version = "0.2.0"
 description = "Tool-agnostic gates and artifact contract for an agentic SDLC"
+readme = "README.md"
 requires-python = ">=3.11"
+authors = [{ name = "Ivan Perez" }]
+keywords = ["agentic", "sdlc", "spec-driven-development", "code-review", "gates", "ci", "llm", "ai-agents"]
+# License is declared via the trove classifier below rather than a PEP 639
+# `license = "Apache-2.0"` SPDX string: the SPDX form needs setuptools>=77,
+# but build-system pins only >=64, and mixing the SPDX string with a
+# classifier is a hard error on 77+. Classifier-only works on both. The
+# LICENSE file is auto-included in the wheel by setuptools' default glob.
+classifiers = [
+    "License :: OSI Approved :: Apache Software License",
+    "Intended Audience :: Developers",
+    "Environment :: Console",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Quality Assurance",
+]
 dependencies = []          # deliberate: these gates run in whatever CI the client already has
+
+[project.urls]
+Homepage = "https://github.com/ivan1405/agentic-sdlc"
+Repository = "https://github.com/ivan1405/agentic-sdlc"
+Issues = "https://github.com/ivan1405/agentic-sdlc/issues"
 
 [project.scripts]
 asdlc = "asdlc.cli:main"
