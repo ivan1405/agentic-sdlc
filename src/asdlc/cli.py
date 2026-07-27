@@ -28,7 +28,7 @@ from pathlib import Path
 PKG = Path(__file__).resolve().parent
 ASSETS = PKG / "assets"
 
-from asdlc import agents, commands, mcp, sdd, tui
+from asdlc import adapters, mcp, sdd, tui
 from asdlc.gates.checks import ALL_CHECKS, CheckResult, Context, load_policy
 # ANSI colour constants live with the wizard's other terminal machinery in tui.
 from asdlc.tui import DIM, GREEN, RED, RESET, YELLOW
@@ -287,7 +287,8 @@ def cmd_init(args: argparse.Namespace) -> int:
 
     # adapters
     for tool in args.tools:
-        n = render_adapter(root, tool, changes_dir, specs_dir, context_file, force=args.force)
+        n = adapters.render_adapter(root, tool, ASSETS, changes_dir, specs_dir,
+                                    context_file, force=args.force)
         print(f"  {GREEN}+{RESET} adapter: {tool:<20} ({n} files)")
 
     # SDD methodology
@@ -321,66 +322,6 @@ def cmd_init(args: argparse.Namespace) -> int:
         f"Then tune .asdlc/policy.yaml, and {next_step}.{gate_note}"
     )
     return 0
-
-
-# --------------------------------------------------------------------------- #
-# adapters — the ONLY tool-specific code in the whole standard
-# --------------------------------------------------------------------------- #
-ADAPTER_TARGETS = {
-    "claude-code": [(".claude/commands", "commands"), (".claude/skills", "__skills__"),
-                    (".claude/agents", "agents")],
-    "codex": [(".codex/prompts", "commands"), (".codex/skills", "__skills__"),
-              (".codex/agents", "agents")],
-    "copilot": [(".github/prompts", "commands"), (".github/skills", "__skills__"),
-                (".github/agents", "agents")],
-    "cursor": [(".cursor/commands", "commands"), (".cursor/skills", "__skills__"),
-               (".cursor/agents", "agents")],
-    "generic": [("docs/agent-workflow.md", "__single__")],
-}
-
-
-def render_adapter(root: Path, tool: str, changes_dir: str, specs_dir: str,
-                    context_file: str, force: bool = False) -> int:
-    if tool not in ADAPTER_TARGETS:
-        raise SystemExit(f"unknown tool '{tool}'. known: {', '.join(sorted(ADAPTER_TARGETS))}")
-    shared = ASSETS / "commands"
-    agents_shared = ASSETS / "agents"
-    count = 0
-    for rel, kind in ADAPTER_TARGETS[tool]:
-        dst = root / rel
-        if kind == "__skills__":
-            dst.mkdir(parents=True, exist_ok=True)
-            for skill in (ASSETS / "skills").glob("*/"):
-                target = dst / skill.name
-                if target.exists():
-                    if not force:
-                        continue
-                    shutil.rmtree(target)
-                shutil.copytree(skill, target)
-                count += 1
-        elif kind == "agents":
-            dst.mkdir(parents=True, exist_ok=True)
-            for name, content in sorted(agents.render_tool_files(tool, agents_shared).items()):
-                target = dst / name
-                if target.exists() and not force:
-                    continue
-                target.write_text(content)
-                count += 1
-        elif kind == "__single__":
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            doc = (commands.render_generic(shared, changes_dir, specs_dir, context_file)
-                   + "\n\n" + agents.render_generic(agents_shared))
-            dst.write_text(doc)
-            count += 1
-        else:
-            dst.mkdir(parents=True, exist_ok=True)
-            for name, content in sorted(commands.render_tool_files(tool, shared, changes_dir, specs_dir, context_file).items()):
-                target = dst / name
-                if target.exists() and not force:
-                    continue
-                target.write_text(content)
-                count += 1
-    return count
 
 
 # --------------------------------------------------------------------------- #
@@ -588,7 +529,7 @@ def _run_wizard(root: Path) -> argparse.Namespace:
     project = tui._prompt("Project name", root.name)
     stack = tui._prompt("Describe your stack (languages/frameworks) in a few words")
     tools = tui._prompt_multi("Which agent tool(s) does this repo use?",
-                              sorted(ADAPTER_TARGETS), ["claude-code"])
+                              sorted(adapters.TOOL_NAMES), ["claude-code"])
     mcp_names = sorted(MCP_CATALOG)
     mcp_choice = tui._prompt_multi(
         "Install any MCP servers? Adds a pointer to .mcp.json — remote/OAuth "
@@ -625,7 +566,7 @@ def main(argv: list[str] | None = None) -> int:
     pi.add_argument("--project")
     pi.add_argument("--stack")
     pi.add_argument("--tools", nargs="+", default=["claude-code"],
-                    choices=sorted(ADAPTER_TARGETS))
+                    choices=sorted(adapters.TOOL_NAMES))
     pi.add_argument("--ci", default="github", choices=["github", "gitlab", "none"])
     pi.add_argument("--sdd", default="none", choices=SDD_CHOICES,
                     help="SDD methodology to install (shells out to its own installer; kiro is templates-only)")

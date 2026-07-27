@@ -27,7 +27,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import asdlc  # noqa: E402
-from asdlc import agents, commands  # noqa: E402
+from asdlc.adapters import ADAPTERS, agents, commands  # noqa: E402
 
 try:
     import yaml  # type: ignore
@@ -39,12 +39,15 @@ COMMANDS_DIR = ASSETS / "commands"
 AGENTS_DIR = ASSETS / "agents"
 GOLDEN = Path(__file__).resolve().parent / "golden"
 
-# Tools with a native, structured adapter format. "generic" is the paste-into-
-# anything fallback and is snapshotted separately (it has no per-file schema).
-TOOLS = ["claude-code", "codex", "copilot", "cursor"]
-# Frontmatter-carrying tools — everything but Codex, whose agent files are TOML
-# and whose command files are an HTML comment header, neither of which is YAML.
-FRONTMATTER_TOOLS = {"claude-code", "copilot", "cursor"}
+# Derived from the registry so this test tracks new tools automatically.
+# generic is excluded (no per-file schema; snapshotted separately).
+COMMAND_TOOLS = [n for n, a in ADAPTERS.items() if a.commands_dir]   # claude,codex,copilot,cursor,gemini,windsurf
+AGENT_TOOLS = [n for n, a in ADAPTERS.items() if a.agents_dir]       # claude,codex,copilot,cursor
+# Command files that carry a YAML frontmatter block — not Codex's HTML-comment
+# header nor Gemini's native TOML, both validated separately below.
+YAML_COMMAND_TOOLS = ["claude-code", "copilot", "cursor", "windsurf"]
+# Agent files that carry a YAML frontmatter block (Codex agents are TOML).
+YAML_AGENT_TOOLS = ["claude-code", "copilot", "cursor"]
 
 # Canonical substitution values so snapshots are deterministic. These are just
 # what a fresh `asdlc init` (no SDD front-end) would use.
@@ -117,14 +120,26 @@ def _check_golden(rel: str, actual: str) -> None:
 # --------------------------------------------------------------------------- #
 # completeness — every workflow step / role renders, for every tool
 # --------------------------------------------------------------------------- #
-@pytest.mark.parametrize("tool", TOOLS)
-def test_every_command_and_role_renders(tool):
+@pytest.mark.parametrize("tool", COMMAND_TOOLS)
+def test_every_command_renders(tool):
     cmds = _render_commands(tool)
-    ags = _render_agents(tool)
     assert {n.split(".")[0] for n in cmds} == EXPECTED_COMMANDS
-    assert {n.split(".")[0] for n in ags} == EXPECTED_ROLES
     assert all(v.strip() for v in cmds.values()), "a command rendered empty"
+
+
+@pytest.mark.parametrize("tool", AGENT_TOOLS)
+def test_every_role_renders(tool):
+    ags = _render_agents(tool)
+    assert {n.split(".")[0] for n in ags} == EXPECTED_ROLES
     assert all(v.strip() for v in ags.values()), "an agent rendered empty"
+
+
+def test_command_only_tools_render_no_agents():
+    """gemini/windsurf have commands but no native agent format — they must
+    render nothing rather than a bogus agent file."""
+    for name, a in ADAPTERS.items():
+        if a.commands_dir and not a.agents_dir:
+            assert _render_agents(name) == {}, f"{name} unexpectedly rendered agents"
 
 
 # --------------------------------------------------------------------------- #
@@ -147,7 +162,16 @@ def test_codex_commands_have_header_and_body():
         assert "$ARGUMENTS" in content, f"{name}: argument token not substituted"
 
 
-@pytest.mark.parametrize("tool", sorted(FRONTMATTER_TOOLS))
+def test_gemini_commands_are_valid_toml():
+    for name, content in _render_commands("gemini").items():
+        assert name.endswith(".toml")
+        data = tomllib.loads(content)  # raises on malformed TOML / bad escape
+        assert data.get("prompt", "").strip(), f"{name}: missing prompt"
+        assert "%%ARG%%" not in content, f"{name}: raw arg placeholder left unrendered"
+        assert "{{args}}" in data["prompt"], f"{name}: Gemini args token not substituted"
+
+
+@pytest.mark.parametrize("tool", YAML_COMMAND_TOOLS)
 def test_command_frontmatter_is_valid(tool):
     for name, content in _render_commands(tool).items():
         fm = _frontmatter_block(content)
@@ -156,7 +180,7 @@ def test_command_frontmatter_is_valid(tool):
         assert body, f"{tool}/{name}: no body after frontmatter"
 
 
-@pytest.mark.parametrize("tool", sorted(FRONTMATTER_TOOLS))
+@pytest.mark.parametrize("tool", YAML_AGENT_TOOLS)
 def test_agent_frontmatter_is_valid(tool):
     for name, content in _render_agents(tool).items():
         fm = _frontmatter_block(content)
@@ -178,12 +202,12 @@ def test_claude_agents_declare_verified_fields():
 # --------------------------------------------------------------------------- #
 # golden snapshots — exact rendered bytes, per tool (drift guard for refactors)
 # --------------------------------------------------------------------------- #
-@pytest.mark.parametrize("tool", TOOLS)
+@pytest.mark.parametrize("tool", COMMAND_TOOLS)
 def test_commands_snapshot(tool):
     _check_golden(f"{tool}.commands.txt", _manifest(_render_commands(tool)))
 
 
-@pytest.mark.parametrize("tool", TOOLS)
+@pytest.mark.parametrize("tool", AGENT_TOOLS)
 def test_agents_snapshot(tool):
     _check_golden(f"{tool}.agents.txt", _manifest(_render_agents(tool)))
 

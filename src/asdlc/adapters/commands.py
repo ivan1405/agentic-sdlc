@@ -1,46 +1,18 @@
-"""Render per-tool adapter file content from assets/commands/*.md.
+"""Render per-tool command/prompt files from assets/commands/*.md.
 
 The workflow is written once, in `assets/commands/`. Everything here is a
-formatting difference between vendors — frontmatter keys and an argument
-placeholder. If a new agent CLI shows up next quarter, add ~8 lines to TOOLS
-below, not a new methodology. Generation happens at `asdlc init` time (see
-cli.py::render_adapter), not as a separate dev-time build step, so
-`assets/commands/*.md` is the only file anyone ever hand-edits.
+formatting difference between vendors — a frontmatter header and an argument
+token — and those differences live as fields on the tool's `Adapter` in
+registry.py. This module is tool-blind: it reads the adapter and applies it.
 """
 from __future__ import annotations
 
 import re
 from pathlib import Path
 
-ORDER = ["onboard", "propose", "design", "implement", "verify", "archive"]
+from asdlc.adapters.registry import ADAPTERS
 
-# name -> (filename fmt, frontmatter builder, argument token)
-TOOLS = {
-    # Claude Code: .claude/commands/<name>.md, $ARGUMENTS, YAML frontmatter.
-    "claude-code": (
-        "{name}.md",
-        lambda d, h: f"---\ndescription: {d}\nargument-hint: {h}\n---\n\n",
-        "$ARGUMENTS",
-    ),
-    # Codex CLI: .codex/prompts/<name>.md, $ARGUMENTS, no frontmatter schema.
-    "codex": (
-        "{name}.md",
-        lambda d, h: f"<!-- {d} | usage: /{{name}} {h} -->\n\n",
-        "$ARGUMENTS",
-    ),
-    # Copilot: .github/prompts/<name>.prompt.md, ${input:...}, mode frontmatter.
-    "copilot": (
-        "{name}.prompt.md",
-        lambda d, h: f"---\nmode: agent\ndescription: {d}\n---\n\n",
-        "${input:args}",
-    ),
-    # Cursor: .cursor/commands/<name>.md, plain markdown.
-    "cursor": (
-        "{name}.md",
-        lambda d, h: f"---\ndescription: {d}\n---\n\n",
-        "$ARGUMENTS",
-    ),
-}
+ORDER = ["onboard", "propose", "design", "implement", "verify", "archive"]
 
 DESC_RE = re.compile(r"^%%DESC:\s*(.+?)%%\s*$", re.M)
 HINT_RE = re.compile(r"^%%HINT:\s*(.+?)%%\s*$", re.M)
@@ -60,15 +32,33 @@ def _fill_dirs(text: str, changes_dir: str, specs_dir: str, context_file: str) -
                 .replace("%%CONTEXT_FILE%%", context_file))
 
 
+def _render_toml_command(desc: str, body: str) -> str:
+    """A native TOML command doc (Gemini CLI): `description` + a `prompt`
+    multi-line basic string. Escape backslashes first, then the triple-quote
+    delimiter, so the body can't break out of `prompt` — same rule the Codex
+    agent serializer uses."""
+    esc_desc = desc.replace("\\", "\\\\").replace('"', '\\"')
+    esc_body = body.replace("\\", "\\\\").replace('"""', '\\"\\"\\"')
+    return f'description = "{esc_desc}"\nprompt = """\n{esc_body}"""\n'
+
+
 def render_tool_files(tool: str, shared_dir: Path, changes_dir: str, specs_dir: str,
                        context_file: str) -> dict[str, str]:
     """Render {filename: content} for every workflow step, for one tool."""
-    fname_fmt, fm, argtok = TOOLS[tool]
+    adapter = ADAPTERS[tool]
     files: dict[str, str] = {}
+    # No verified argument token => a neutral placeholder rather than a guess.
+    token = adapter.arg_token or "<your input here>"
     for name in ORDER:
         desc, hint, body = parse(shared_dir / f"{name}.md")
-        content = fm(desc, hint).replace("{name}", name) + body.replace("%%ARG%%", argtok)
-        files[fname_fmt.format(name=name)] = _fill_dirs(content, changes_dir, specs_dir, context_file)
+        body = body.replace("%%ARG%%", token)
+        if adapter.command_style == "toml":
+            content = _render_toml_command(desc, body)
+        else:
+            content = adapter.command_frontmatter(desc, hint).replace("{name}", name) + body
+        files[adapter.command_filename.format(name=name)] = _fill_dirs(
+            content, changes_dir, specs_dir, context_file
+        )
     return files
 
 

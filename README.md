@@ -36,8 +36,12 @@ run whatever swarm they like against gates that do not care who wrote the code.
 
 ```
 src/asdlc/cli.py            asdlc: init | new | verify | doctor
-src/asdlc/commands.py       renders the one workflow definition into each tool's command format
-src/asdlc/agents.py         renders the 6 role definitions into each tool's native agent format
+src/asdlc/tui.py            the interactive `asdlc init` wizard's terminal/menu machinery
+src/asdlc/adapters/         the ONLY tool-specific code — one registry, two renderers:
+  registry.py                 single source of truth: one Adapter entry per tool (add a tool here)
+  commands.py                 renders the one workflow definition into each tool's command format
+  agents.py                   renders the 6 role definitions into each tool's native agent format
+  render.py                   writes a tool's files into a repo (driven by the Adapter's fields)
 src/asdlc/sdd.py            shells out to OpenSpec/Spec Kit/BMAD's own installer, or writes Kiro's templates
 src/asdlc/gates/            the standard: 7 checks, zero dependencies, one policy file per client
 src/asdlc/assets/           the payload asdlc init reads/renders into a client repo:
@@ -86,15 +90,17 @@ precisely because every dev box has PyYAML and would otherwise hide it.
 
 ## Portability
 
-The only tool-specific code in this repo is `commands.py` and `agents.py`, and
-the files they render are **generated at `asdlc init` time**, not committed:
+The only tool-specific code in this repo is the `src/asdlc/adapters/` package,
+and the files it renders are **generated at `asdlc init` time**, not committed:
 
 ```
 assets/commands/*.md     ->  asdlc init  ->  .claude/commands/     (Claude Code)
                                              .codex/prompts/       (Codex CLI)
                                              .github/prompts/      (Copilot)
                                              .cursor/commands/     (Cursor)
-                                             docs/agent-workflow.md (anything else)
+                                             .gemini/commands/     (Gemini CLI, .toml)
+                                             .windsurf/workflows/  (Windsurf, .md)
+                                             docs/agent-workflow.md (generic / Aider / anything else)
 
 assets/skills/*/SKILL.md ->  asdlc init  ->  .claude/skills/       (Claude Code)
                                              .codex/skills/        (Codex CLI)
@@ -105,6 +111,7 @@ assets/agents/*.md       ->  asdlc init  ->  .claude/agents/       (Claude Code,
                                              .codex/agents/        (Codex CLI, .toml — not Markdown)
                                              .github/agents/       (Copilot, .agent.md)
                                              .cursor/agents/       (Cursor, .md)
+                                             (Gemini/Windsurf have no native agent file — roles ride in AGENTS.md)
 ```
 
 Agents are the one place formatting differences become a real format
@@ -119,9 +126,12 @@ exists there). Copilot's `tools:` uses a different, unverified vocabulary,
 and Codex has no per-tool list at all — both are left without extra fields
 rather than guess.
 
-The workflow is written once. Per-vendor differences are frontmatter keys and an
-argument token, rendered by `commands.py`. A new agent CLI next quarter costs ~8
-lines in `commands.py`'s `TOOLS` dict, not a new methodology. Skills are copied,
+The workflow is written once. Per-vendor differences are data — dirs, filenames,
+a frontmatter/TOML style, an argument token — held in one place, `adapters/
+registry.py`. A new agent CLI next quarter costs **one `Adapter(...)` entry**
+there (that's how Gemini CLI and Windsurf were added), not a new methodology.
+`docs/adapter-verification.md` records which tool schemas were verified against a
+real example, and when. Skills are copied,
 not shared — pick two tools and the 5 packs land twice, once per tool's own dir,
 so each tool's native discovery works without an indirection to chase.
 
