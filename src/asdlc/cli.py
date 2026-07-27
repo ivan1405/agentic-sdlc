@@ -11,6 +11,7 @@ Commands
   asdlc new <change-id>      Create a change folder from the artifact contract
   asdlc verify               Run the gate suite (the actual standard)
   asdlc doctor               Report which agent tools are wired up in this repo
+  asdlc report               Adoption metrics from git — lead time, throughput, spec coverage
 """
 from __future__ import annotations
 
@@ -28,7 +29,7 @@ from pathlib import Path
 PKG = Path(__file__).resolve().parent
 ASSETS = PKG / "assets"
 
-from asdlc import adapters, mcp, practices, sdd, tui
+from asdlc import adapters, mcp, practices, report, sdd, tui
 from asdlc.gates.checks import ALL_CHECKS, CheckResult, Context, load_policy
 # ANSI colour constants live with the wizard's other terminal machinery in tui.
 from asdlc.tui import DIM, GREEN, RED, RESET, YELLOW
@@ -515,6 +516,50 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
     return 0
 
 
+# --------------------------------------------------------------------------- #
+# report — adoption metrics (git-derived, API-free)
+# --------------------------------------------------------------------------- #
+def cmd_report(args: argparse.Namespace) -> int:
+    root = repo_root()
+    policy = load_policy(root, PKG)
+    source_globs = policy.get("source_globs") or ["src/**"]
+    changes_dir, _ = _read_artifact_dirs(root)
+    results_dir = Path(args.results_dir) if args.results_dir else None
+
+    m = report.build(root, since=args.since, results_dir=results_dir,
+                     source_globs=source_globs, changes_dir=changes_dir)
+
+    if args.json:
+        Path(args.json).write_text(json.dumps(m, indent=2))
+
+    print(f"{DIM}adoption metrics — since {m['since']}  (git history on the current branch){RESET}\n")
+    print(f"  merges (PRs to mainline)   {m['merges']}")
+    lt = m["lead_time"]
+    print(f"  PR lead time median/p90    {lt['median']} / {lt['p90']}   {DIM}[{lt['measured']} measured]{RESET}")
+    sc = m["spec_coverage"]
+    if sc["pct"] is None:
+        print(f"  PRs carrying a spec        {DIM}n/a — no production code changed in window{RESET}")
+    else:
+        print(f"  PRs carrying a spec        {sc['pct']}%   {DIM}[{sc['with_spec']}/{sc['production_merges']} production PRs]{RESET}")
+
+    vh = m["verify_history"]
+    if vh is not None:
+        print(f"\n  gate pass-rate             {vh['green_pct']}%   {DIM}[{vh['runs']} verify run(s)]{RESET}")
+        for name, n in vh["gate_fails"].items():
+            print(f"      {YELLOW}{name}{RESET}: {n} fail(s)")
+    else:
+        print(f"\n  gate pass-rate             {DIM}n/a — pass --results-dir with archived `asdlc verify --json` files{RESET}")
+
+    print(f"\n  {DIM}not derivable from git alone:{RESET}")
+    for k, why in m["unavailable"].items():
+        print(f"      {k}: {DIM}{why}{RESET}")
+
+    if m["merges"] == 0:
+        print(f"\n{YELLOW}No merges in the window.{RESET} A shallow clone hides history "
+              f"(CI needs fetch-depth: 0); or widen it, e.g. --since '1 year ago'.")
+    return 0
+
+
 def cmd_mcp_list(_args: argparse.Namespace) -> int:
     configured = mcp.read_mcp_json(repo_root()).get("mcpServers", {})
     print("MCP catalog (verify against the docs link before rolling out to a client):\n")
@@ -635,6 +680,12 @@ def main(argv: list[str] | None = None) -> int:
 
     pd = sub.add_parser("doctor", help="report repo wiring")
     pd.set_defaults(func=cmd_doctor)
+
+    prp = sub.add_parser("report", help="adoption metrics from git + archived verify results")
+    prp.add_argument("--since", default="90 days ago", help="git date window (default: '90 days ago')")
+    prp.add_argument("--results-dir", help="dir of archived `asdlc verify --json` outputs, for gate pass-rate")
+    prp.add_argument("--json", help="write machine-readable metrics here")
+    prp.set_defaults(func=cmd_report)
 
     pm = sub.add_parser("mcp", help="manage this repo's .mcp.json against asdlc's MCP catalog")
     mcp_sub = pm.add_subparsers(dest="mcp_cmd", required=True)

@@ -42,5 +42,5 @@ jobs:
       - name: Packaging (wheel builds, installs clean, drives CLI from outside the tree)
         run: bash tests/test_packaging.sh
 
-      - name: Unit tests (policy parser, wizard, adapters, practices)
-        run: PYTHONPATH=src python3 -m pytest tests/test_policy_parser.py tests/test_wizard.py tests/test_adapters.py tests/test_practices.py -q
+      - name: Unit tests (policy parser, wizard, adapters, practices, report)
+        run: PYTHONPATH=src python3 -m pytest tests/test_policy_parser.py tests/test_wizard.py tests/test_adapters.py tests/test_practices.py tests/test_report.py -q

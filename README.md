@@ -44,6 +44,7 @@ src/asdlc/adapters/         the ONLY tool-specific code — one registry, two re
   render.py                   writes a tool's files into a repo (driven by the Adapter's fields)
 src/asdlc/sdd.py            shells out to OpenSpec/Spec Kit/BMAD's own installer, or writes Kiro's templates
 src/asdlc/practices.py      installs the selected practice packs and links them from the context file
+src/asdlc/report.py         asdlc report: adoption metrics from git + archived verify results (no API)
 src/asdlc/gates/            the standard: 7 checks, zero dependencies, one policy file per client
 src/asdlc/assets/           the payload asdlc init reads/renders into a client repo:
   templates/                  artifact contract — proposal, spec, design, tasks, ADR, AGENTS.md
@@ -297,6 +298,17 @@ Don't big-bang it. See [standard/04-adoption-playbook.md](standard/04-adoption-p
 Short version: two pilots, six weeks, `spec-drift: warn` on legacy repos, ratchet
 to `fail` after a quarter. Measure PR lead time, review rework rate, escaped
 defects, and % of PRs with a current spec — or you have a slide deck, not a standard.
+
+`asdlc report` computes the git-derivable half of those numbers — merge
+throughput, PR lead time, and % of merged PRs that carried a spec — with no API
+call or dependency, plus a gate pass-rate if you point `--results-dir` at
+archived `asdlc verify --json` runs. Review rework rate and escaped defects need
+the PR/issue API, so it names them as such rather than guessing.
+
+```bash
+asdlc report --since "90 days ago"                  # git metrics
+asdlc report --results-dir ci-artifacts/ --json report.json
+```
 
 ## Docs
 
