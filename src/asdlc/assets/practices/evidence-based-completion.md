@@ -1,6 +1,8 @@
 # Evidence-based completion
 
 <!-- summary: No completion claim without fresh verification evidence you produced this run. -->
+<!-- tier: core -->
+<!-- category: Testing & QA -->
 
 **The iron law: no claim of success without fresh verification evidence.** "It's
 done" without evidence is a guess. If you did not run the check in this session,

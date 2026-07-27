@@ -16,10 +16,13 @@ profile: balanced   # strict | balanced | light  (documentation only; see preset
 sdd: "%%SDD_CHOICE%%"
 
 # Which engineering-practice packs `asdlc init --practices` installed into
-# docs/practices/ and linked from the context file. Recorded so a re-run
-# without --practices remembers the selection (and `asdlc doctor` stays
-# accurate). Guidance only — not enforced by any gate. Edit by hand to add or
-# drop a pack, then re-run `asdlc init --force` to resync docs/practices/.
+# docs/practices/ and linked from the context file. Two tiers: `core` (universal,
+# installed by default) and `domain` (observability, api-design, data-privacy,
+# cicd-release, infrastructure-as-code, performance, accessibility — opted into
+# by the nature of the project). Recorded so a re-run without --practices
+# remembers the selection (and `asdlc doctor` stays accurate). Guidance only —
+# not enforced by any gate. Edit by hand to add or drop a pack, then re-run
+# `asdlc init --force` to resync docs/practices/.
 # Comma-separated (quoted, like `sdd:` above — keeps the file valid YAML).
 practices: "%%PRACTICES%%"
 

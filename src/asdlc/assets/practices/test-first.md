@@ -1,6 +1,8 @@
 # Test first
 
 <!-- summary: Write the failing test first; RED to GREEN to REFACTOR; cover the failure paths. -->
+<!-- tier: core -->
+<!-- category: Testing & QA -->
 
 Write the test before the implementation. Tests written after the fact tend to
 assert what the code already does — they codify bugs and skip the failure paths

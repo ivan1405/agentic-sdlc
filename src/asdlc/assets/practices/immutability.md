@@ -1,6 +1,8 @@
 # Immutability
 
 <!-- summary: Prefer new values over in-place mutation; mutation hides where state changed. -->
+<!-- tier: core -->
+<!-- category: Foundations -->
 
 Prefer creating new values over mutating existing ones. Shared mutable state is
 the hardest class of bug to trace: when a value can change anywhere, "who

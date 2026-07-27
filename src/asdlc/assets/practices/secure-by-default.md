@@ -1,6 +1,8 @@
 # Secure by default
 
 <!-- summary: Secrets in env vars; validate inputs; parameterize queries; check authz; don't leak errors. -->
+<!-- tier: core -->
+<!-- category: Security & Data -->
 
 Security is a default, not a later pass.
 

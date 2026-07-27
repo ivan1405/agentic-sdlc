@@ -1,6 +1,8 @@
 # Surgical changes
 
 <!-- summary: Change only what the task requires; match existing style; don't clean up adjacent code. -->
+<!-- tier: core -->
+<!-- category: Foundations -->
 
 Change only what the task requires. Every line in a diff should trace directly
 to the request. A reviewer must be able to find the actual change without

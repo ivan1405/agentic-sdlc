@@ -32,13 +32,34 @@ def _check_golden(rel: str, actual: str) -> None:
 
 
 def test_packs_exist_and_parse():
-    entries = practices.available(ASSETS)
-    assert len(entries) >= 8, "expected at least the 8 seeded packs"
-    for name, title, summary in entries:
-        assert title and title != name, f"{name}: missing a '# Title' heading"
-        assert summary, f"{name}: missing a '<!-- summary: … -->' line"
-        body = (ASSETS / "practices" / f"{name}.md").read_text()
-        assert len(body.strip().splitlines()) > 3, f"{name}: body too thin"
+    for p in practices.available(ASSETS):
+        assert p.title and p.title != p.name, f"{p.name}: missing a '# Title' heading"
+        assert p.summary, f"{p.name}: missing a '<!-- summary: … -->' line"
+        assert p.tier in ("core", "domain"), f"{p.name}: bad tier {p.tier!r}"
+        assert p.category in practices.CATEGORY_ORDER, f"{p.name}: unknown category {p.category!r}"
+        body = (ASSETS / "practices" / f"{p.name}.md").read_text()
+        assert len(body.strip().splitlines()) > 3, f"{p.name}: body too thin"
+
+
+def test_tier_counts():
+    core = practices.names(ASSETS, "core")
+    domain = practices.names(ASSETS, "domain")
+    assert len(core) == 8, core
+    assert len(domain) == 7, domain
+    assert set(core).isdisjoint(domain)
+    assert sorted(core + domain) == sorted(ALL)
+
+
+def test_resolve_expands_tokens_dedups_and_orders_core_first():
+    core = practices.names(ASSETS, "core")
+    domain = practices.names(ASSETS, "domain")
+    assert practices.resolve(ASSETS, ["core"]) == core
+    assert practices.resolve(ASSETS, ["domain"]) == domain
+    assert practices.resolve(ASSETS, ["all"]) == core + domain
+    # names + a group token: deduped, core-first regardless of input order
+    assert practices.resolve(ASSETS, ["observability", "core", "immutability"]) == core + ["observability"]
+    assert practices.resolve(ASSETS, ["nope"]) == []          # unknown dropped
+    assert practices.resolve(ASSETS, []) == []                # empty -> none
 
 
 def test_names_sorted_and_unique():
@@ -50,10 +71,23 @@ def test_packs_are_vendor_neutral():
     """No Claude/agent/slash-command/personal references leaked from the seed."""
     banned = ["claude", "codex", "cursor", "copilot", "/simplify", "/plan",
               "sub-agent", "subagent", "qjc-office", "mcp__", "playwright"]
-    for name, _, _ in practices.available(ASSETS):
-        text = (ASSETS / "practices" / f"{name}.md").read_text().lower()
+    for p in practices.available(ASSETS):
+        text = (ASSETS / "practices" / f"{p.name}.md").read_text().lower()
         for token in banned:
-            assert token not in text, f"{name}: leaked non-neutral token {token!r}"
+            assert token not in text, f"{p.name}: leaked non-neutral token {token!r}"
+
+
+def test_grouped_orders_categories_and_skips_empty():
+    packs = practices.available(ASSETS)
+    labels = [label for label, _ in practices.grouped(packs)]
+    assert labels == practices.CATEGORY_ORDER  # all 5 present, in canonical order
+    # within a group, packs are name-sorted
+    for _, members in practices.grouped(packs):
+        assert [m.name for m in members] == sorted(m.name for m in members)
+    # a core-only selection yields only the categories that contain core packs
+    core = [p for p in packs if p.tier == "core"]
+    core_labels = [label for label, _ in practices.grouped(core)]
+    assert core_labels == ["Foundations", "Testing & QA", "Security & Data"]
 
 
 def test_install_copies_only_selected(tmp_path):

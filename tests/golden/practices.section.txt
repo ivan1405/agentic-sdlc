@@ -2,11 +2,27 @@
 
 How code is written in this repo. Read the relevant one before you act — these are standards, not suggestions.
 
+**Foundations**
 - [Validate at the boundaries](docs/practices/boundary-validation.md) — Validate and parse untrusted input at system edges; trust internal code.
 - [Clarify before coding](docs/practices/clarify-before-coding.md) — Surface assumptions and ask on ambiguity; be honest about uncertainty; check current docs.
-- [Evidence-based completion](docs/practices/evidence-based-completion.md) — No completion claim without fresh verification evidence you produced this run.
 - [Immutability](docs/practices/immutability.md) — Prefer new values over in-place mutation; mutation hides where state changed.
-- [Secure by default](docs/practices/secure-by-default.md) — Secrets in env vars; validate inputs; parameterize queries; check authz; don't leak errors.
 - [Small, focused units](docs/practices/small-units.md) — Small files and functions, low nesting, organized by feature; handle errors; no hardcoded values.
 - [Surgical changes](docs/practices/surgical-changes.md) — Change only what the task requires; match existing style; don't clean up adjacent code.
+
+**Testing & QA**
+- [Evidence-based completion](docs/practices/evidence-based-completion.md) — No completion claim without fresh verification evidence you produced this run.
 - [Test first](docs/practices/test-first.md) — Write the failing test first; RED to GREEN to REFACTOR; cover the failure paths.
+
+**Security & Data**
+- [Data & privacy](docs/practices/data-privacy.md) — Minimize, classify, encrypt, and retain PII deliberately; least-privilege access with an audit trail.
+- [Secure by default](docs/practices/secure-by-default.md) — Secrets in env vars; validate inputs; parameterize queries; check authz; don't leak errors.
+
+**DevOps & Platform**
+- [CI/CD & release](docs/practices/cicd-release.md) — Reproducible builds, automated pipeline, progressive delivery with a rollback, no manual prod steps.
+- [Infrastructure as code](docs/practices/infrastructure-as-code.md) — Declarative, reviewed, no click-ops; managed state, env parity, least-privilege, plan-before-apply.
+- [Observability](docs/practices/observability.md) — Structured logs, correlation IDs, metrics and traces — enough to debug in production without a redeploy.
+- [Performance](docs/practices/performance.md) — Set budgets, measure before optimizing, watch tail latency, kill N+1s, cache with invalidation.
+
+**Product & Interface**
+- [Accessibility](docs/practices/accessibility.md) — Semantic markup, keyboard operable, sufficient contrast, labelled controls, ARIA only when needed.
+- [API & contract design](docs/practices/api-design.md) — Contract-first, versioned, backward-compatible; consistent errors, pagination, and idempotency.

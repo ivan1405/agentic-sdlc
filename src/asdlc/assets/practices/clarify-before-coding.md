@@ -1,6 +1,8 @@
 # Clarify before coding
 
 <!-- summary: Surface assumptions and ask on ambiguity; be honest about uncertainty; check current docs. -->
+<!-- tier: core -->
+<!-- category: Foundations -->
 
 When requirements are ambiguous, surface your assumptions and ask — don't guess
 silently and build the wrong thing confidently. A minute of clarification is

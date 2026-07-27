@@ -35,7 +35,8 @@ from asdlc.gates.checks import ALL_CHECKS, CheckResult, Context, load_policy
 from asdlc.tui import DIM, GREEN, RED, RESET, YELLOW
 
 MCP_CATALOG = mcp.load_catalog(ASSETS)
-PRACTICE_NAMES = practices.names(ASSETS)
+PRACTICE_NAMES = practices.names(ASSETS)                 # all packs (for --practices choices)
+CORE_PRACTICES = practices.names(ASSETS, "core")         # the default install set
 
 ARTIFACTS = ["proposal.md", "spec.md", "design.md", "tasks.md"]
 
@@ -224,11 +225,13 @@ def cmd_init(args: argparse.Namespace) -> int:
     (root / ".asdlc").mkdir(exist_ok=True)
 
     # Which practice packs to install: an explicit --practices (or wizard
-    # selection) wins; else whatever a prior init persisted; else all of them.
+    # selection) wins — names and/or group tokens (core/domain/all), resolved
+    # to concrete names; else whatever a prior init persisted; else core only
+    # (domain packs are opt-in by the nature of the project).
     if getattr(args, "practices", None) is not None:
-        selected_practices = list(args.practices)
+        selected_practices = practices.resolve(ASSETS, args.practices)
     else:
-        selected_practices = _read_practices(root) or PRACTICE_NAMES
+        selected_practices = _read_practices(root) or CORE_PRACTICES
 
     # policy
     dst_policy = root / ".asdlc" / "policy.yaml"
@@ -498,7 +501,7 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
     if installed:
         print(f"  {GREEN}{len(installed)}{RESET}  {', '.join(installed)}")
     else:
-        print(f"  {YELLOW}none{RESET} — run `asdlc init --practices ...` (default installs all)")
+        print(f"  {YELLOW}none{RESET} — run `asdlc init` (installs core) or `--practices all` for domains too")
 
     stale = []
     for cf in sorted((root / changes_dir).glob("*/")) if (root / changes_dir).exists() else []:
@@ -625,12 +628,20 @@ def _run_wizard(root: Path) -> argparse.Namespace:
                 **{n: MCP_CATALOG[n]["note"] for n in mcp_names}},
     )
     mcp_choice = [m for m in mcp_choice if m != "none"]
+    # Present the packs grouped into category boxes, ordered as grouped() dictates.
+    packs = practices.available(ASSETS)
+    ordered_practices: list[str] = []
+    practice_headers: dict[int, str] = {}
+    for label, members in practices.grouped(packs):
+        practice_headers[len(ordered_practices)] = label
+        ordered_practices += [p.name for p in members]
     practice_choice = tui._prompt_multi(
         "Which engineering practices to install? They land in docs/practices/ "
-        "and get linked from your context file — vendor-neutral standards every "
-        "agent reads. Default: all.",
-        PRACTICE_NAMES, PRACTICE_NAMES,
-        blurbs={n: s for n, _, s in practices.available(ASSETS)},
+        "and get linked from your context file. Core packs are pre-selected; "
+        "add domain ones by the nature of the project.",
+        ordered_practices, CORE_PRACTICES,
+        blurbs={p.name: p.summary for p in packs},
+        headers=practice_headers,
     )
     ci = tui._prompt_choice("CI provider?", ["github", "gitlab", "none"], "github")
     sdd_choice = tui._prompt_choice(
@@ -662,8 +673,10 @@ def main(argv: list[str] | None = None) -> int:
     pi.add_argument("--ci", default="github", choices=["github", "gitlab", "none"])
     pi.add_argument("--sdd", default="none", choices=SDD_CHOICES,
                     help="SDD methodology to install (shells out to its own installer; kiro is templates-only)")
-    pi.add_argument("--practices", nargs="*", choices=PRACTICE_NAMES, default=None, metavar="NAME",
-                    help="engineering-practice packs to install (default: all; empty list: none)")
+    pi.add_argument("--practices", nargs="*", choices=PRACTICE_NAMES + list(practices.GROUP_TOKENS),
+                    default=None, metavar="NAME",
+                    help="practice packs or group tokens core/domain/all "
+                         "(default: core; empty list: none)")
     pi.add_argument("--force", action="store_true")
     pi.set_defaults(func=cmd_init)
 

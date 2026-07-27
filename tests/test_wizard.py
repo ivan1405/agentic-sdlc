@@ -30,7 +30,7 @@ def test_wizard_parses_multiselect_and_choice_by_number(monkeypatch, tmp_path):
     assert ns.stack == "Python 3.12, FastAPI"
     assert ns.tools == ["claude-code", "copilot"]
     assert ns.mcp == []  # blank -> "none" -> filtered out
-    assert ns.practices == cli.PRACTICE_NAMES  # blank -> default (all)
+    assert ns.practices == cli.CORE_PRACTICES  # blank -> default (core tier)
     assert ns.ci == "gitlab"
     assert ns.sdd == "none"
     assert ns.force is False
@@ -43,7 +43,7 @@ def test_wizard_parses_by_name_not_just_number(monkeypatch, tmp_path):
     assert ns.stack is None
     assert ns.tools == ["codex", "cursor"]
     assert ns.mcp == ["atlassian"]
-    assert ns.practices == cli.PRACTICE_NAMES
+    assert ns.practices == cli.CORE_PRACTICES
     assert ns.ci == "none"
     assert ns.sdd == "kiro"
 
@@ -53,7 +53,7 @@ def test_wizard_blank_answers_use_defaults(monkeypatch, tmp_path):
     ns = cli._run_wizard(tmp_path)
     assert ns.tools == ["claude-code"]
     assert ns.mcp == []
-    assert ns.practices == cli.PRACTICE_NAMES
+    assert ns.practices == cli.CORE_PRACTICES
     assert ns.ci == "github"
     assert ns.sdd == "none"
 
@@ -100,6 +100,14 @@ def test_display_rows_counts_wrapping_not_logical_lines():
     assert tui._display_rows("x" * 31, 10) == 4           # partial 4th row
     assert tui._display_rows("\x1b[32mhi\x1b[0m", 80) == 1  # ANSI codes take no columns
     assert tui._display_rows("y" * 25, 10) == 3           # visible length drives it
+
+
+def test_render_menu_adds_rows_for_group_headers(capsys):
+    opts = ["a", "b", "c"]
+    base = tui._render_menu(0, "q?", opts, 0, frozenset(), None, None)
+    withh = tui._render_menu(0, "q?", opts, 0, frozenset(), None, {0: "Box A", 2: "Box B"})
+    capsys.readouterr()  # swallow the rendered output
+    assert withh > base, "group headers should add printed rows to the menu"
 
 
 def test_arrow_menus_fall_back_to_none_when_not_a_tty(monkeypatch):

@@ -1,6 +1,8 @@
 # Validate at the boundaries
 
 <!-- summary: Validate and parse untrusted input at system edges; trust internal code. -->
+<!-- tier: core -->
+<!-- category: Foundations -->
 
 Validation belongs at the edges of the system, not scattered through it. Data
 crossing a trust boundary — user input, an HTTP request body, a queue message,

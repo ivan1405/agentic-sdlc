@@ -51,7 +51,7 @@ src/asdlc/assets/           the payload asdlc init reads/renders into a client r
   templates/                  artifact contract — proposal, spec, design, tasks, ADR, AGENTS.md
   templates/kiro/             Kiro's steering docs — the one SDD methodology with no CLI to shell out to
   skills/                     5 portable SKILL.md packs, copied into each SKILL.md-reading tool's skills dir
-  practices/                  8 vendor-neutral engineering-practice docs, installed into docs/practices/
+  practices/                  15 vendor-neutral practice docs (8 core + 7 domain), installed into docs/practices/
   commands/                   the workflow, written once — onboard/propose/design/implement/verify/archive
   agents/                     6 role definitions — technical-leader, solutions-architect, frontend-dev,
                                backend-dev, qa-engineer, security-engineer — written once, rendered per tool
@@ -271,24 +271,34 @@ config is wrong.
 
 The gates enforce *that* work is specified, traced, and reviewed. The **practice
 packs** say *how* the code inside should be written — the vendor-neutral
-engineering standards a consultancy actually bills for. Eight short docs ship in
-`assets/practices/`:
+engineering standards a consultancy actually bills for. They come in **tiers**,
+because a Go service, a React app, and an ML pipeline don't need the same advice:
 
-`immutability` · `small-units` · `boundary-validation` · `test-first` ·
-`evidence-based-completion` · `secure-by-default` · `surgical-changes` ·
-`clarify-before-coding`
+- **`core`** (universal, installed by default) — `immutability` · `small-units` ·
+  `boundary-validation` · `test-first` · `evidence-based-completion` ·
+  `secure-by-default` · `surgical-changes` · `clarify-before-coding`
+- **`domain`** (opt-in by the nature of the project) — `observability` ·
+  `api-design` · `data-privacy` · `cicd-release` · `infrastructure-as-code` ·
+  `performance` · `accessibility`
+- **`stack`** (React / Go / Python-ML overlays) — *planned; the tier axis is in place.*
 
 `asdlc init` copies the selected packs into the client repo's `docs/practices/`
-and folds a lean `## Practices` section into the context file
+and folds a lean, grouped `## Practices` section into the context file
 (AGENTS.md/CLAUDE.md) that links them — so every agent reads the standards
 without bloating the hub. Claude-only repos also get `@docs/practices/*.md`
 imports so Claude auto-loads them.
 
 ```bash
-asdlc init --tools claude-code                       # all packs (default)
-asdlc init --tools codex --practices immutability test-first   # a subset
-asdlc init --tools cursor --practices                # none
+asdlc init --tools claude-code                                  # core only (default)
+asdlc init --tools codex --practices core observability api-design   # core + two domains
+asdlc init --tools cursor --practices all                       # everything
+asdlc init --tools cursor --practices                           # none
 ```
+
+`--practices` takes pack names and/or the group tokens `core` / `domain` / `all`.
+Both the setup wizard and the rendered `## Practices` section organize the packs
+into category boxes — **Foundations · Testing & QA · Security & Data · DevOps &
+Platform · Product & Interface** — so a 15-item list stays scannable.
 
 The selection persists in `.asdlc/policy.yaml` (`practices:`), so a re-run
 remembers it, and `asdlc doctor` reports what's installed. Practices are

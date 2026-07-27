@@ -193,13 +193,22 @@ def _display_rows(line: str, cols: int) -> int:
 
 
 def _render_menu(prev_lines: int, question: str, options: list[str], cursor: int,
-                 selected: frozenset[int] | None, blurbs: dict[str, str] | None) -> int:
+                 selected: frozenset[int] | None, blurbs: dict[str, str] | None,
+                 headers: dict[int, str] | None = None) -> int:
     """Redraw the menu in place — clear what the previous call printed, then
-    print the current state — and return the physical-row count for next time."""
+    print the current state — and return the physical-row count for next time.
+
+    `headers` maps an option index to a group label printed above it (the
+    category boxes). Headers are display-only — cursor/selection indices are
+    unaffected, so navigation logic never has to skip them."""
     if prev_lines:
         sys.stdout.write(f"\033[{prev_lines}A\r\033[J")
     rendered = ["", question]
     for i, opt in enumerate(options):
+        if headers and i in headers:
+            if i != 0:
+                rendered.append("")          # blank line separates the boxes
+            rendered.append(f"  {YELLOW}{headers[i]}{RESET}")
         pointer = "❯" if i == cursor else " "
         box = "" if selected is None else ("[x] " if i in selected else "[ ] ")
         style, reset = (GREEN, RESET) if i == cursor else ("", "")
@@ -239,7 +248,8 @@ def _arrow_choice(question: str, options: list[str], default: str,
 
 
 def _arrow_multi(question: str, options: list[str], default: list[str],
-                 blurbs: dict[str, str] | None = None) -> list[str] | None:
+                 blurbs: dict[str, str] | None = None,
+                 headers: dict[int, str] | None = None) -> list[str] | None:
     """Interactive arrow-key checkbox multi-select. Returns the picked
     options, or None if the terminal can't support it."""
     if not _menu_supported():
@@ -250,7 +260,7 @@ def _arrow_multi(question: str, options: list[str], default: list[str],
     try:
         with _raw_mode():
             while True:
-                prev_lines = _render_menu(prev_lines, question, options, cursor, selected, blurbs)
+                prev_lines = _render_menu(prev_lines, question, options, cursor, selected, blurbs, headers)
                 cursor, selected, outcome = _apply_key_multi(cursor, selected, _read_key(), len(options))
                 if outcome == "confirm":
                     return [opt for i, opt in enumerate(options) if i in selected] or default
@@ -282,12 +292,15 @@ def _prompt_choice(question: str, options: list[str], default: str,
 
 
 def _prompt_multi(question: str, options: list[str], default: list[str],
-                  blurbs: dict[str, str] | None = None) -> list[str]:
-    picked = _arrow_multi(question, options, default, blurbs)
+                  blurbs: dict[str, str] | None = None,
+                  headers: dict[int, str] | None = None) -> list[str]:
+    picked = _arrow_multi(question, options, default, blurbs, headers)
     if picked is not None:
         return picked
     print(f"\n{question}")
     for i, opt in enumerate(options, 1):
+        if headers and (i - 1) in headers:
+            print(f"\n  {YELLOW}{headers[i - 1]}{RESET}")
         print(f"  {i}. {opt}{'  (default)' if opt in default else ''}")
         if blurbs and opt in blurbs:
             print(f"     {DIM}{blurbs[opt]}{RESET}")

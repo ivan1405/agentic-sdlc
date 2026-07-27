@@ -1,6 +1,8 @@
 # Small, focused units
 
 <!-- summary: Small files and functions, low nesting, organized by feature; handle errors; no hardcoded values. -->
+<!-- tier: core -->
+<!-- category: Foundations -->
 
 Many small, cohesive files beat a few large ones. Small units are easier to
 name, test, review, and delete.
