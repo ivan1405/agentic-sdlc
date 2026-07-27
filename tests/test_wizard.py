@@ -21,34 +21,39 @@ def _answer(monkeypatch, answers: list[str]):
     monkeypatch.setattr("builtins.input", lambda prompt="": next(it))
 
 
+# Wizard prompt order: project, stack, tools, mcp, practices, ci, sdd.
+# The practices answer sits between mcp and ci; blank => all packs (the default).
 def test_wizard_parses_multiselect_and_choice_by_number(monkeypatch, tmp_path):
-    _answer(monkeypatch, ["demo-project", "Python 3.12, FastAPI", "1,3", "", "2", "1"])
+    _answer(monkeypatch, ["demo-project", "Python 3.12, FastAPI", "1,3", "", "", "2", "1"])
     ns = cli._run_wizard(tmp_path)
     assert ns.project == "demo-project"
     assert ns.stack == "Python 3.12, FastAPI"
     assert ns.tools == ["claude-code", "copilot"]
     assert ns.mcp == []  # blank -> "none" -> filtered out
+    assert ns.practices == cli.PRACTICE_NAMES  # blank -> default (all)
     assert ns.ci == "gitlab"
     assert ns.sdd == "none"
     assert ns.force is False
 
 
 def test_wizard_parses_by_name_not_just_number(monkeypatch, tmp_path):
-    _answer(monkeypatch, ["", "", "codex,cursor", "atlassian", "none", "kiro"])
+    _answer(monkeypatch, ["", "", "codex,cursor", "atlassian", "", "none", "kiro"])
     ns = cli._run_wizard(tmp_path)
     assert ns.project == tmp_path.name  # blank -> default (repo dir name)
     assert ns.stack is None
     assert ns.tools == ["codex", "cursor"]
     assert ns.mcp == ["atlassian"]
+    assert ns.practices == cli.PRACTICE_NAMES
     assert ns.ci == "none"
     assert ns.sdd == "kiro"
 
 
 def test_wizard_blank_answers_use_defaults(monkeypatch, tmp_path):
-    _answer(monkeypatch, ["", "", "", "", "", ""])
+    _answer(monkeypatch, ["", "", "", "", "", "", ""])
     ns = cli._run_wizard(tmp_path)
     assert ns.tools == ["claude-code"]
     assert ns.mcp == []
+    assert ns.practices == cli.PRACTICE_NAMES
     assert ns.ci == "github"
     assert ns.sdd == "none"
 
@@ -86,6 +91,17 @@ def test_apply_key_multi_toggles_selection_independent_of_cursor():
     assert tui._apply_key_multi(1, frozenset({0}), "QUIT", 3) == (1, frozenset({0}), "quit")
 
 
+def test_display_rows_counts_wrapping_not_logical_lines():
+    # The redraw bug: a wrapping blurb occupies more physical rows than the one
+    # logical line it is, so the cursor-up must use physical rows.
+    assert tui._display_rows("", 80) == 1                 # empty line still one row
+    assert tui._display_rows("x" * 10, 10) == 1           # exact fit
+    assert tui._display_rows("x" * 30, 10) == 3           # wraps to 3
+    assert tui._display_rows("x" * 31, 10) == 4           # partial 4th row
+    assert tui._display_rows("\x1b[32mhi\x1b[0m", 80) == 1  # ANSI codes take no columns
+    assert tui._display_rows("y" * 25, 10) == 3           # visible length drives it
+
+
 def test_arrow_menus_fall_back_to_none_when_not_a_tty(monkeypatch):
     monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: False)
     assert tui._arrow_choice("q?", ["a", "b"], "a") is None
@@ -103,8 +119,8 @@ def test_wizard_output_feeds_cmd_init_end_to_end(monkeypatch, tmp_path):
     subprocess.run(["git", "commit", "-qm", "init"], cwd=tmp_path, check=True)
 
     monkeypatch.setattr(cli, "repo_root", lambda start=None: tmp_path)
-    # claude-code only, mcp: github, ci none, sdd none
-    _answer(monkeypatch, ["demo", "", "1", "github", "3", "1"])
+    # claude-code only, mcp: github, practices: all (blank), ci none, sdd none
+    _answer(monkeypatch, ["demo", "", "1", "github", "", "3", "1"])
     ns = cli._run_wizard(tmp_path)
     assert cli.cmd_init(ns) == 0
 
@@ -112,3 +128,6 @@ def test_wizard_output_feeds_cmd_init_end_to_end(monkeypatch, tmp_path):
     assert not (tmp_path / "AGENTS.md").exists()  # claude-code alone: inlined into CLAUDE.md
     assert (tmp_path / ".claude" / "commands" / "propose.md").exists()
     assert "github" in cli.mcp.read_mcp_json(tmp_path)["mcpServers"]
+    # practices installed and linked from the (claude-inline) context file
+    assert (tmp_path / "docs" / "practices" / "immutability.md").exists()
+    assert "## Practices" in (tmp_path / "CLAUDE.md").read_text()

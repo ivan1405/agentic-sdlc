@@ -1,0 +1,22 @@
+## Practices
+
+How code is written in this repo. Read the relevant one before you act — these are standards, not suggestions.
+
+- [Validate at the boundaries](docs/practices/boundary-validation.md) — Validate and parse untrusted input at system edges; trust internal code.
+- [Clarify before coding](docs/practices/clarify-before-coding.md) — Surface assumptions and ask on ambiguity; be honest about uncertainty; check current docs.
+- [Evidence-based completion](docs/practices/evidence-based-completion.md) — No completion claim without fresh verification evidence you produced this run.
+- [Immutability](docs/practices/immutability.md) — Prefer new values over in-place mutation; mutation hides where state changed.
+- [Secure by default](docs/practices/secure-by-default.md) — Secrets in env vars; validate inputs; parameterize queries; check authz; don't leak errors.
+- [Small, focused units](docs/practices/small-units.md) — Small files and functions, low nesting, organized by feature; handle errors; no hardcoded values.
+- [Surgical changes](docs/practices/surgical-changes.md) — Change only what the task requires; match existing style; don't clean up adjacent code.
+- [Test first](docs/practices/test-first.md) — Write the failing test first; RED to GREEN to REFACTOR; cover the failure paths.
+
+<!-- Claude Code auto-loads these: -->
+@docs/practices/boundary-validation.md
+@docs/practices/clarify-before-coding.md
+@docs/practices/evidence-based-completion.md
+@docs/practices/immutability.md
+@docs/practices/secure-by-default.md
+@docs/practices/small-units.md
+@docs/practices/surgical-changes.md
+@docs/practices/test-first.md

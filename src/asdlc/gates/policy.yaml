@@ -15,6 +15,14 @@ profile: balanced   # strict | balanced | light  (documentation only; see preset
 # you switch front-ends outside of `asdlc init --force`.
 sdd: "%%SDD_CHOICE%%"
 
+# Which engineering-practice packs `asdlc init --practices` installed into
+# docs/practices/ and linked from the context file. Recorded so a re-run
+# without --practices remembers the selection (and `asdlc doctor` stays
+# accurate). Guidance only — not enforced by any gate. Edit by hand to add or
+# drop a pack, then re-run `asdlc init --force` to resync docs/practices/.
+# Comma-separated (quoted, like `sdd:` above — keeps the file valid YAML).
+practices: "%%PRACTICES%%"
+
 # Where asdlc's own artifact contract lives. Set once by `asdlc init` based on
 # --sdd: openspec/changes+specs when OpenSpec is the front-end (or none is),
 # .asdlc/changes+specs otherwise — avoids calling this directory "openspec"

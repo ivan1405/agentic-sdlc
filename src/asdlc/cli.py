@@ -28,12 +28,13 @@ from pathlib import Path
 PKG = Path(__file__).resolve().parent
 ASSETS = PKG / "assets"
 
-from asdlc import adapters, mcp, sdd, tui
+from asdlc import adapters, mcp, practices, sdd, tui
 from asdlc.gates.checks import ALL_CHECKS, CheckResult, Context, load_policy
 # ANSI colour constants live with the wizard's other terminal machinery in tui.
 from asdlc.tui import DIM, GREEN, RED, RESET, YELLOW
 
 MCP_CATALOG = mcp.load_catalog(ASSETS)
+PRACTICE_NAMES = practices.names(ASSETS)
 
 ARTIFACTS = ["proposal.md", "spec.md", "design.md", "tasks.md"]
 
@@ -133,6 +134,18 @@ def _read_sdd_choice(root: Path) -> str:
     return "none" if _unresolved(choice) else choice
 
 
+def _read_practices(root: Path) -> list[str] | None:
+    """The practice packs a prior `asdlc init` persisted, or None if never set
+    (unsubstituted %%PRACTICES%% token, or no policy yet)."""
+    val = load_policy(root, PKG).get("practices")
+    if val is None:
+        return None
+    if isinstance(val, str):
+        val = [x.strip() for x in val.split(",")]
+    cleaned = [v for v in val if v and not _unresolved(v)]
+    return cleaned or None
+
+
 # Checks that can only verify asdlc's own proposal/spec/design/tasks.md
 # contract — meaningless once a real SDD front-end's own commands (not
 # asdlc's /propose) are what's actually producing artifacts.
@@ -209,12 +222,20 @@ def cmd_init(args: argparse.Namespace) -> int:
     changes_dir, specs_dir = _default_artifact_dirs(args.sdd)
     (root / ".asdlc").mkdir(exist_ok=True)
 
+    # Which practice packs to install: an explicit --practices (or wizard
+    # selection) wins; else whatever a prior init persisted; else all of them.
+    if getattr(args, "practices", None) is not None:
+        selected_practices = list(args.practices)
+    else:
+        selected_practices = _read_practices(root) or PRACTICE_NAMES
+
     # policy
     dst_policy = root / ".asdlc" / "policy.yaml"
     if not dst_policy.exists() or args.force:
         tpl = (PKG / "gates" / "policy.yaml").read_text()
         tpl = tpl.replace("%%CHANGES_DIR%%", changes_dir).replace("%%SPECS_DIR%%", specs_dir)
         tpl = tpl.replace("%%SDD_CHOICE%%", args.sdd)
+        tpl = tpl.replace("%%PRACTICES%%", ", ".join(selected_practices))
         relaxed = _relaxed_checks(args.sdd)
         if relaxed:
             tpl = _disable_checks(tpl, relaxed)
@@ -238,6 +259,17 @@ def cmd_init(args: argparse.Namespace) -> int:
     context_tpl = context_tpl.replace("{{STACK}}", args.stack or "TODO: languages, frameworks, versions")
     context_tpl = context_tpl.replace("{{CHANGES_DIR}}", changes_dir).replace("{{SPECS_DIR}}", specs_dir)
     context_tpl = context_tpl.replace("{{WORKFLOW_NOTE}}", _workflow_note(args.sdd))
+
+    # Practices — copy the selected packs into docs/practices/ and fold a lean
+    # `## Practices` pointer section into the context file (or nothing if none
+    # were selected). Claude-only repos get @-imports so Claude auto-loads them.
+    practices_section = practices.install(
+        root, ASSETS, selected_practices,
+        inline_for_claude=inline_into_claude, force=args.force,
+    )
+    context_tpl = context_tpl.replace("{{PRACTICES}}", practices_section)
+    if selected_practices:
+        print(f"  {GREEN}+{RESET} docs/practices/               ({len(selected_practices)} pack(s), linked from {context_file})")
 
     agents_md = root / "AGENTS.md"
     if not inline_into_claude:
@@ -459,6 +491,14 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
         if path:
             print(f"  {GREEN}yes{RESET}  {name:<12} ({path})")
 
+    prac_dir = root / "docs" / "practices"
+    installed = sorted(p.stem for p in prac_dir.glob("*.md")) if prac_dir.exists() else []
+    print("\npractice packs installed (docs/practices/):")
+    if installed:
+        print(f"  {GREEN}{len(installed)}{RESET}  {', '.join(installed)}")
+    else:
+        print(f"  {YELLOW}none{RESET} — run `asdlc init --practices ...` (default installs all)")
+
     stale = []
     for cf in sorted((root / changes_dir).glob("*/")) if (root / changes_dir).exists() else []:
         tasks = cf / "tasks.md"
@@ -540,6 +580,13 @@ def _run_wizard(root: Path) -> argparse.Namespace:
                 **{n: MCP_CATALOG[n]["note"] for n in mcp_names}},
     )
     mcp_choice = [m for m in mcp_choice if m != "none"]
+    practice_choice = tui._prompt_multi(
+        "Which engineering practices to install? They land in docs/practices/ "
+        "and get linked from your context file — vendor-neutral standards every "
+        "agent reads. Default: all.",
+        PRACTICE_NAMES, PRACTICE_NAMES,
+        blurbs={n: s for n, _, s in practices.available(ASSETS)},
+    )
     ci = tui._prompt_choice("CI provider?", ["github", "gitlab", "none"], "github")
     sdd_choice = tui._prompt_choice(
         "SDD front-end? Installs the real tool via its own installer (npx/uv) "
@@ -551,7 +598,7 @@ def _run_wizard(root: Path) -> argparse.Namespace:
     print()
     return argparse.Namespace(project=project or None, stack=stack or None,
                                tools=tools, ci=ci, sdd=sdd_choice, mcp=mcp_choice,
-                               force=False)
+                               practices=practice_choice, force=False)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -570,6 +617,8 @@ def main(argv: list[str] | None = None) -> int:
     pi.add_argument("--ci", default="github", choices=["github", "gitlab", "none"])
     pi.add_argument("--sdd", default="none", choices=SDD_CHOICES,
                     help="SDD methodology to install (shells out to its own installer; kiro is templates-only)")
+    pi.add_argument("--practices", nargs="*", choices=PRACTICE_NAMES, default=None, metavar="NAME",
+                    help="engineering-practice packs to install (default: all; empty list: none)")
     pi.add_argument("--force", action="store_true")
     pi.set_defaults(func=cmd_init)
 

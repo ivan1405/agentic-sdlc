@@ -14,7 +14,9 @@ from __future__ import annotations
 
 import contextlib
 import os
+import re
 import select
+import shutil
 import sys
 
 # Arrow-key wizard input needs raw terminal access, which is platform-specific
@@ -174,14 +176,28 @@ def _apply_key_multi(cursor: int, selected: frozenset[int], key: str,
     return cursor, selected, "noop"
 
 
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _display_rows(line: str, cols: int) -> int:
+    """Physical terminal rows a single logical line occupies at width `cols`.
+
+    A long line (e.g. an option blurb) wraps onto multiple rows; the in-place
+    redraw must move the cursor up by the *physical* row count, not the logical
+    line count, or wrapped overflow is left behind on every keypress. ANSI
+    colour codes take no columns; an empty line still occupies one row."""
+    visible = _ANSI_RE.sub("", line)
+    if not visible:
+        return 1
+    return -(-len(visible) // max(1, cols))  # ceil division
+
+
 def _render_menu(prev_lines: int, question: str, options: list[str], cursor: int,
                  selected: frozenset[int] | None, blurbs: dict[str, str] | None) -> int:
     """Redraw the menu in place — clear what the previous call printed, then
-    print the current state — and return the new line count for next time."""
+    print the current state — and return the physical-row count for next time."""
     if prev_lines:
         sys.stdout.write(f"\033[{prev_lines}A\r\033[J")
-    # One list entry per visual line — no embedded "\n"s — so len(rendered)
-    # below is an accurate line count for the next call's cursor-up.
     rendered = ["", question]
     for i, opt in enumerate(options):
         pointer = "❯" if i == cursor else " "
@@ -194,7 +210,10 @@ def _render_menu(prev_lines: int, question: str, options: list[str], cursor: int
     rendered.append(f"{DIM}(↑/↓ to move, {hint}){RESET}")
     sys.stdout.write("\n".join(rendered) + "\n")
     sys.stdout.flush()
-    return len(rendered)
+    # Count physical rows (lines may wrap at the terminal width), so the next
+    # call's cursor-up clears exactly what we printed.
+    cols = shutil.get_terminal_size((80, 24)).columns
+    return sum(_display_rows(line, cols) for line in rendered)
 
 
 def _arrow_choice(question: str, options: list[str], default: str,

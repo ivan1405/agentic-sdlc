@@ -43,11 +43,13 @@ src/asdlc/adapters/         the ONLY tool-specific code — one registry, two re
   agents.py                   renders the 6 role definitions into each tool's native agent format
   render.py                   writes a tool's files into a repo (driven by the Adapter's fields)
 src/asdlc/sdd.py            shells out to OpenSpec/Spec Kit/BMAD's own installer, or writes Kiro's templates
+src/asdlc/practices.py      installs the selected practice packs and links them from the context file
 src/asdlc/gates/            the standard: 7 checks, zero dependencies, one policy file per client
 src/asdlc/assets/           the payload asdlc init reads/renders into a client repo:
   templates/                  artifact contract — proposal, spec, design, tasks, ADR, AGENTS.md
   templates/kiro/             Kiro's steering docs — the one SDD methodology with no CLI to shell out to
   skills/                     5 portable SKILL.md packs, copied into every selected tool's own skills dir
+  practices/                  8 vendor-neutral engineering-practice docs, installed into docs/practices/
   commands/                   the workflow, written once — onboard/propose/design/implement/verify/archive
   agents/                     6 role definitions — technical-leader, solutions-architect, frontend-dev,
                                backend-dev, qa-engineer, security-engineer — written once, rendered per tool
@@ -258,6 +260,36 @@ consent link errors out instead of connecting, it's usually a pending
 admin-approval step or an org policy blocking third-party app installs —
 check with whoever administers that workspace/org before assuming asdlc's
 config is wrong.
+
+## Practices
+
+The gates enforce *that* work is specified, traced, and reviewed. The **practice
+packs** say *how* the code inside should be written — the vendor-neutral
+engineering standards a consultancy actually bills for. Eight short docs ship in
+`assets/practices/`:
+
+`immutability` · `small-units` · `boundary-validation` · `test-first` ·
+`evidence-based-completion` · `secure-by-default` · `surgical-changes` ·
+`clarify-before-coding`
+
+`asdlc init` copies the selected packs into the client repo's `docs/practices/`
+and folds a lean `## Practices` section into the context file
+(AGENTS.md/CLAUDE.md) that links them — so every agent reads the standards
+without bloating the hub. Claude-only repos also get `@docs/practices/*.md`
+imports so Claude auto-loads them.
+
+```bash
+asdlc init --tools claude-code                       # all packs (default)
+asdlc init --tools codex --practices immutability test-first   # a subset
+asdlc init --tools cursor --practices                # none
+```
+
+The selection persists in `.asdlc/policy.yaml` (`practices:`), so a re-run
+remembers it, and `asdlc doctor` reports what's installed. Practices are
+**guidance, not a gate** — the point is that agents read them, not that
+`asdlc verify` blocks on them. A client tunes the set per engagement, or edits
+the docs in place. Content is distilled tool-agnostic — no vendor, no
+slash-commands, no assumptions about which agent runs it.
 
 ## Rollout
 
