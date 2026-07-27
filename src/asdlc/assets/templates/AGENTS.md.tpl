@@ -35,7 +35,9 @@ This repo uses a spec-first, gated workflow. Do not improvise around it.
 
 1. **No code without a change folder.** Every change lives in
    `{{CHANGES_DIR}}/<change-id>/` with proposal.md, spec.md, design.md, tasks.md.
-   Create one with `asdlc new <change-id>` if it does not exist.
+   Create one with `asdlc new <change-id>` if it does not exist — or start from a
+   Jira ticket with `/jira-import <ticket-key>`, which drafts the change (in the
+   installed SDD's shape) and asks for clarification on the ticket if it's thin.
 2. **Stop after design.md.** A human reviews and approves the design before you
    write implementation code. Do not skip ahead because the task seems obvious.
 3. **Implement task by task**, ticking `tasks.md` as you go. One task, one

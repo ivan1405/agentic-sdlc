@@ -11,6 +11,19 @@ release is MAJOR if it can turn a previously-green PR red.
 ## [Unreleased]
 
 ### Added
+- `/jira-import <ticket-key>` workflow command: the technical-leader reads a Jira
+  story (via the Atlassian MCP) and drafts a change in the installed SDD's shape
+  (`asdlc new` for `--sdd none`, `openspec new change` for OpenSpec, etc.), or —
+  if the ticket is too thin to write testable requirements — posts a Jira comment
+  asking for the specific missing detail instead of creating anything.
+  ⚠️ On the `--sdd none` path it can **auto-sign `design.md`'s `Approved-by:`**
+  when the ticket is detailed enough, controlled by a new `jira_import.auto_approve`
+  flag in `.asdlc/policy.yaml` (**default `true`**). This is a deliberate,
+  engagement-configurable override of the standard's rule that an agent must
+  never sign that line (see `standard/03-definition-of-done.md`); it lets
+  `human-approval` pass on agent authority, including on sensitive diffs. Set the
+  flag to `false` to keep a human in the loop (tech-lead posts a "ready for
+  approval" comment and stops).
 - Practice packs are grouped into **category boxes** — Foundations, Testing & QA,
   Security & Data, DevOps & Platform, Product & Interface — in both the setup
   wizard (with group headers) and the rendered `## Practices` section, so the

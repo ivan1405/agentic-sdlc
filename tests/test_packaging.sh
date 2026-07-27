@@ -45,6 +45,7 @@ for f in \
   "assets/practices/observability.md" \
   "assets/commands/propose.md" \
   "assets/commands/onboard.md" \
+  "assets/commands/jira-import.md" \
   "assets/agents/security-engineer.md" \
   "assets/templates/kiro/product.md.tpl" \
   "assets/ci/github/agentic-sdlc.yml" \
@@ -72,6 +73,8 @@ check "context file gets a ## Practices section linking the packs" \
   grep -q '## Practices' "$REPO/CLAUDE.md"
 check "practice selection persisted into policy.yaml" \
   grep -qE '^practices: ".*test-first' "$REPO/.asdlc/policy.yaml"
+check "jira_import.auto_approve flag present in policy.yaml" \
+  grep -q 'auto_approve:' "$REPO/.asdlc/policy.yaml"
 check "--practices all installs a domain pack too" \
   bash -c "cd '$REPO' && env NO_COLOR=1 '$VENV/bin/asdlc' init --tools claude-code --practices all --force >/dev/null && test -f docs/practices/observability.md"
 check ".mcp.json starts empty — asdlc doesn't opine on which servers" \

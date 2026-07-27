@@ -52,7 +52,7 @@ src/asdlc/assets/           the payload asdlc init reads/renders into a client r
   templates/kiro/             Kiro's steering docs — the one SDD methodology with no CLI to shell out to
   skills/                     5 portable SKILL.md packs, copied into each SKILL.md-reading tool's skills dir
   practices/                  15 vendor-neutral practice docs (8 core + 7 domain), installed into docs/practices/
-  commands/                   the workflow, written once — onboard/propose/design/implement/verify/archive
+  commands/                   the workflow, written once — onboard/jira-import/propose/design/implement/verify/archive
   agents/                     6 role definitions — technical-leader, solutions-architect, frontend-dev,
                                backend-dev, qa-engineer, security-engineer — written once, rendered per tool
                                (Codex's is TOML, not Markdown)

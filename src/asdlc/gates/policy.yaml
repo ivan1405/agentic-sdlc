@@ -26,6 +26,21 @@ sdd: "%%SDD_CHOICE%%"
 # Comma-separated (quoted, like `sdd:` above — keeps the file valid YAML).
 practices: "%%PRACTICES%%"
 
+# /jira-import behaviour.
+#   auto_approve: when true, once the technical-leader judges a Jira ticket
+#   detailed enough, it signs design.md's `Approved-by:` itself so the change
+#   can flow straight to implementation. Applies wherever the change actually
+#   ends up with a design.md — always for --sdd none, and for openspec/kiro
+#   when their own flow produced one (openspec's is optional; speckit/bmad
+#   never produce one, so there's nothing to sign there). This DELIBERATELY
+#   OVERRIDES the standard's rule that a human signs that line (see
+#   standard/03-definition-of-done.md) — it lets `human-approval` pass on
+#   agent authority, including on sensitive diffs.
+#   Set false to keep a human in the loop: the tech-lead instead posts a
+#   "spec ready for approval" comment on the ticket and stops.
+jira_import:
+  auto_approve: true
+
 # Where asdlc's own artifact contract lives. Set once by `asdlc init` based on
 # --sdd: openspec/changes+specs when OpenSpec is the front-end (or none is),
 # .asdlc/changes+specs otherwise — avoids calling this directory "openspec"

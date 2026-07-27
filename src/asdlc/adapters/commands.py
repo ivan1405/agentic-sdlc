@@ -12,7 +12,7 @@ from pathlib import Path
 
 from asdlc.adapters.registry import ADAPTERS
 
-ORDER = ["onboard", "propose", "design", "implement", "verify", "archive"]
+ORDER = ["onboard", "jira-import", "propose", "design", "implement", "verify", "archive"]
 
 DESC_RE = re.compile(r"^%%DESC:\s*(.+?)%%\s*$", re.M)
 HINT_RE = re.compile(r"^%%HINT:\s*(.+?)%%\s*$", re.M)
