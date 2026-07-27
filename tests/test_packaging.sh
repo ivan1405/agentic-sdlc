@@ -40,6 +40,8 @@ for f in \
   "assets/templates/adr.md" \
   "assets/templates/change/spec.md" \
   "assets/skills/spec-authoring/SKILL.md" \
+  "assets/practices/immutability.md" \
+  "assets/practices/evidence-based-completion.md" \
   "assets/commands/propose.md" \
   "assets/commands/onboard.md" \
   "assets/agents/security-engineer.md" \
@@ -61,6 +63,12 @@ for f in .asdlc/policy.yaml CLAUDE.md \
          .github/workflows/agentic-sdlc.yml .mcp.json ; do
   check "init produced: $f" test -e "$REPO/$f"
 done
+check "practices default to all — docs/practices/ populated from the wheel" \
+  test -f "$REPO/docs/practices/immutability.md" -a -f "$REPO/docs/practices/test-first.md"
+check "context file gets a ## Practices section linking the packs" \
+  grep -q '## Practices' "$REPO/CLAUDE.md"
+check "practice selection persisted into policy.yaml" \
+  grep -qE '^practices: ".*test-first' "$REPO/.asdlc/policy.yaml"
 check ".mcp.json starts empty — asdlc doesn't opine on which servers" \
   bash -c "python3 -c \"import json,sys; d=json.load(open('$REPO/.mcp.json')); sys.exit(0 if d == {'mcpServers': {}} else 1)\""
 check "CLAUDE.md points at .mcp.json for MCP servers" grep -q '.mcp.json' "$REPO/CLAUDE.md"

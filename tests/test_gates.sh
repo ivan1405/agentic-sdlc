@@ -47,7 +47,12 @@ EOF
 # Tasks
 - [x] (REQ-001) raise CartEmptyError
 EOF
-  sed -i 's/^Approved-by: .*/Approved-by: Ana Ruiz <ana@x.com>/' openspec/changes/fix-cart/design.md
+  python3 - <<'PY'
+import re
+from pathlib import Path
+p = Path("openspec/changes/fix-cart/design.md")
+p.write_text(re.sub(r"(?m)^Approved-by: .*$", "Approved-by: Ana Ruiz <ana@x.com>", p.read_text()))
+PY
   cat > tests/test_checkout.py <<'EOF'
 def test_REQ_001_empty(): """REQ-001"""
 EOF
@@ -125,7 +130,12 @@ assert_gate "justified false positive passes" PASS security-scan
 setup; good_change
 # agent implements a migration and signs its own homework by deleting the trailer
 mkdir -p src/migrations && echo "ALTER TABLE carts;" > src/migrations/001.sql
-sed -i '/^Approved-by:/d' openspec/changes/fix-cart/design.md
+python3 - <<'PY'
+from pathlib import Path
+p = Path("openspec/changes/fix-cart/design.md")
+p.write_text("".join(l for l in p.read_text().splitlines(keepends=True)
+                     if not l.startswith("Approved-by:")))
+PY
 assert_gate "sensitive change without a human signature is blocked" FAIL human-approval
 
 echo

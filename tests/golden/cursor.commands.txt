@@ -1,0 +1,209 @@
+===== archive.md =====
+---
+description: Fold a merged change into the living spec and archive it
+---
+
+Archive the merged change: $ARGUMENTS
+
+Use the **drift-reconciliation** skill. Confirm the change is merged to main
+first. Best suited to **solutions-architect** if your tool supports subagent
+delegation — folding a delta into the living spec is a spec-accuracy task,
+the same kind of judgment call it already makes when drafting one.
+
+1. Fold the delta into `openspec/specs/<capability>/spec.md`:
+   ADDED → append (keep IDs) · MODIFIED → replace in place (keep IDs) → REMOVED → delete and record why.
+2. Confirm any ADR is in `docs/adr/` with status `accepted`. ADRs outlive the
+   change folder — that reasoning is what the next agent will need.
+3. Move the folder to `openspec/changes/archive/<YYYY-MM-DD>-<change-id>/`.
+4. Run `asdlc verify` on the result.
+
+===== design.md =====
+---
+description: Produce the technical design for an approved spec, then stop for human review
+---
+
+Design the approved change: $ARGUMENTS
+
+Best suited to the **solutions-architect** agent, if your tool supports
+subagent delegation — it drafts, it does not approve its own work.
+**technical-leader** does the sign-off in step 5, never the same agent that
+wrote the design.
+
+1. Read `openspec/changes/<change-id>/proposal.md` and `spec.md`, plus `AGENTS.md`.
+2. Explore the actual codebase before proposing anything. Name the files you read.
+3. Fill in `design.md`:
+   - Approach, and at least one real alternative with why it lost.
+   - Affected surfaces: files, contracts, data model, feature flag.
+   - **Security notes** — use the **security-review** skill for the threat model
+     delta (four questions). "No threat model delta" is a valid answer.
+   - **Regression surface** — use the **regression-triage** skill. Run the
+     `git grep` / `git log` blast-radius commands; do not guess at callers.
+   - Test strategy — use the **test-strategy** skill.
+   - Rollout, rollback, observability.
+4. Write an ADR in `docs/adr/` if you made an architectural decision.
+5. Stop. A human reviews and signs `Approved-by:` in design.md. **This is a hard
+   gate — do not begin implementation, not even scaffolding.**
+
+===== implement.md =====
+---
+description: Implement an approved change, task by task, against the spec
+---
+
+Implement: $ARGUMENTS
+
+Best suited to **frontend-dev** or **backend-dev**, whichever matches the
+task, if your tool supports subagent delegation. A change that touches both
+surfaces splits by task, not by agent doing both — delegate each task to
+whichever one actually owns that surface.
+
+Preconditions — verify these yourself and refuse if unmet:
+- `design.md` exists and carries an `Approved-by:` line.
+- `asdlc verify --stage spec` passes.
+
+Then:
+1. Read `AGENTS.md`, `proposal.md`, `spec.md`, `design.md`, `tasks.md`. All of them.
+2. Work **one task at a time**, in order. For each: write the test first (name it
+   after the REQ- ID it covers), then the code, then run the suite, then tick the
+   box in `tasks.md`. One task, one commit.
+3. Stay inside `Scope: Out` from the proposal. If you find something else worth
+   fixing, note it — do not fix it here.
+4. **Stop and ask** if: the spec is ambiguous, you need a new production
+   dependency, you would touch auth/payments/PII/migrations beyond the design, or
+   the work is growing past what the proposal scoped.
+5. Never weaken, skip, or delete a test to get green. Never edit
+   `.asdlc/policy.yaml`.
+6. When every task is ticked: run `asdlc verify` and fix what it reports.
+7. Update `openspec/specs/<capability>/spec.md` so the living spec matches
+   reality (**drift-reconciliation** skill).
+8. Open a PR: title `<change-id>: <outcome>`, body = the proposal's Problem and
+   Outcome, the REQ- IDs covered, and the regression surface you re-verified.
+   Check `.mcp.json`'s `mcpServers` first — if it has a `github` entry, use
+   the GitHub MCP tools to open the PR instead of assuming a `gh`/git CLI is
+   on PATH. No `github` entry: today's manual flow, unchanged.
+9. Jira handoff — only if `proposal.md`'s `Ticket:` field names one **and**
+   `.mcp.json` has an `atlassian` or `atlassian-self-hosted` entry. Once the
+   PR from step 8 is open, use the Atlassian MCP tools to: look at that
+   ticket's available transitions and move it to whichever one means "ready
+   for review" (never guess a status name that isn't an actual transition on
+   that ticket — ask a human if it's genuinely ambiguous), then comment on
+   the ticket with the PR link, saying it's done and ready for review. No
+   `Ticket:` value, or no atlassian* entry: skip this step entirely, nothing
+   to sync.
+10. This step never merges, approves, or skips a gate — it only opens the PR
+    and touches the ticket, after `asdlc verify` (step 6, including
+    `human-approval`'s named `Approved-by:`) is already green. Never merge
+    your own PR, same boundary as always.
+
+Exact tool names on the GitHub/Atlassian MCP servers may differ by version —
+treat your actual tool list as ground truth over the wording above.
+
+===== onboard.md =====
+---
+description: Skim the codebase once and fill in the context file with real project facts
+---
+
+Onboard this repo: $ARGUMENTS
+
+This is a **one-time** pass. Its whole point is that `/propose`, `/design`, and
+`/implement` afterward read the context file instead of re-scanning the repo
+every time. Do not repeat this skim on every future command.
+
+1. Find the context file — `AGENTS.md`, or `CLAUDE.md` if this repo has no
+   separate `AGENTS.md`. If it has no unfilled `<!-- TODO -->`/placeholder
+   sections left, stop and ask before overwriting anything.
+2. Skim, don't exhaustively read: package manifests (`package.json`,
+   `pyproject.toml`, `go.mod`, ...), the top-level directory layout, README,
+   CI config, and existing tests. Pull real versions and real commands from
+   these — do not guess or invent plausible-sounding ones.
+3. Fill in the context file itself — keep it short, this is always-loaded
+   context, not documentation:
+   - **What this is** — one paragraph, grounded in the README/manifest.
+   - **Stack (pinned)** — actual pinned versions from the manifest/lockfile.
+   - **Commands** — the real install/test/lint/build commands, read from
+     `package.json` scripts, a Makefile, CI config, etc.
+   - **Conventions** — 2-4 bullets, the most load-bearing ones only. Each
+     needs two or more real examples you can point to; one is a coincidence.
+   - **Do not touch** — generated code, vendored dirs, anything the repo's own
+     `.gitignore`/CI treats as off-limits.
+4. Deeper architecture doesn't belong in the context file — check
+   `.asdlc/policy.yaml`'s `sdd:` field first, then do exactly one of these:
+   - `sdd: none` or `openspec` — write `docs/architecture.md` yourself:
+     module map (what each top-level dir is for), key domain concepts, how
+     subsystems talk to each other, and the rationale behind the Conventions
+     above. Add one line under Conventions pointing at it — a plain link, not
+     an `@import`; it should load on demand, not every session.
+   - `sdd: speckit` — Spec Kit already owns this via `/speckit-constitution`.
+     Don't write a competing doc. If it hasn't been run yet, say so and stop
+     — don't do its job for it.
+   - `sdd: bmad` — BMAD's own installed workflow generates the PRD and
+     architecture docs. Same rule: point at running that if it hasn't
+     happened yet, don't duplicate it.
+   - `sdd: kiro` — this repo already has `.kiro/steering/{product,tech,
+     structure}.md`, scaffolded by `asdlc init` for exactly this purpose.
+     Fill those in instead of creating a new file.
+5. Uncertain about something? Leave a `<!-- CONFIRM: ... -->` marker for a
+   human instead of guessing. A wrong fact here is worse than a blank section
+   — every future command trusts this file.
+6. If clear feature-boundary directories exist, propose `capabilities:`
+   entries for `.asdlc/policy.yaml`'s drift gate — **show the diff and ask**,
+   never write policy.yaml yourself.
+7. Do not touch `proposal.md`/`spec.md`/`design.md`/`tasks.md` or any change
+   folder. This command is about context, not a change.
+
+===== propose.md =====
+---
+description: Turn an idea or ticket into a reviewed change folder (proposal + spec)
+---
+
+Start a new change: $ARGUMENTS
+
+Use the **spec-authoring** skill (`.asdlc/skills/spec-authoring/SKILL.md`). Read it now.
+
+The paths below are asdlc's own artifact contract — its own thing,
+independent of whatever SDD front-end (if any) `--sdd` also installed. See
+`.asdlc/policy.yaml`'s `artifact_dirs` for exactly where they point in this repo.
+
+Steps:
+1. Read `AGENTS.md` and `.asdlc/policy.yaml`. If the change touches an existing
+   capability, read `openspec/specs/<capability>/spec.md` first.
+2. Run `asdlc new <change-id>` to scaffold `openspec/changes/<change-id>/`.
+3. **Interview me** before drafting. Ask the questions the skill lists. Do not
+   guess at scope, and do not fill the template with plausible-sounding content.
+4. Draft `proposal.md`, then `spec.md`. Requirements get stable REQ- IDs,
+   SHALL statements, and Given/When/Then scenarios including failure paths.
+   If `$ARGUMENTS` or the interview surfaced a Jira ticket, record its key/link
+   in `proposal.md`'s `Ticket:` field — `/implement` uses it to sync that
+   ticket back once a PR is raised. No ticket, leave it blank.
+5. Run `asdlc verify --stage spec` and fix what it reports.
+6. Stop. Show me the spec and wait. **Do not write design.md or any code yet.**
+
+===== verify.md =====
+---
+description: Run the gates and fix what they report — honestly
+---
+
+Run `asdlc verify $ARGUMENTS` and work through the failures.
+
+For each failing gate, fix the underlying cause. Delegate to the matching
+agent below if your tool supports subagent delegation:
+- **spec-present / spec-lint** — the artifact is missing or untestable. Fix the
+  spec (**spec-authoring** skill), not the gate.
+- **traceability** — a requirement has no task or no test. Write it.
+  Best suited to **qa-engineer**.
+- **spec-drift** — code moved and the spec did not. Use the
+  **drift-reconciliation** skill: classify each divergence, do not blanket-sync.
+  Best suited to **solutions-architect** — this is a spec-accuracy question.
+- **coverage-delta** — add tests that assert behaviour. Not lines executed.
+  Coverage that does not fail when you break the code is fraud.
+  Best suited to **qa-engineer**.
+- **security-scan** — triage with the **security-review** skill. A false positive
+  gets an `asdlc:allow-secret` comment and a one-line justification, never a
+  silent policy edit. Best suited to **security-engineer**.
+- **human-approval** — this one is not yours to fix, agent or not. Ask an
+  actual human — this gate exists specifically because some decisions are
+  not an agent's to make alone.
+
+Absolutely forbidden: editing `.asdlc/policy.yaml`, adding exempt globs,
+deleting tests, or lowering thresholds to make this pass. If you believe a gate
+is genuinely wrong, say so and stop.
+

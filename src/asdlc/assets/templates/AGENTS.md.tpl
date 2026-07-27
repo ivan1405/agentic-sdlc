@@ -63,6 +63,7 @@ syncs a linked Jira ticket via `atlassian`/`atlassian-self-hosted` — see
 - <!-- deeper architecture, module map, rationale: docs/architecture.md, if
      /onboard wrote one for this repo. Not every repo needs it — see /onboard. -->
 
+{{PRACTICES}}
 ## Do not touch
 - `<!-- generated code, vendored dirs, legacy modules under freeze -->`
 - Anything under `infra/` or `**/migrations/` without an approved design.md.

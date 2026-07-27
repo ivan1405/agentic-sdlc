@@ -1,0 +1,46 @@
+# This repo's own CI — not to be confused with assets/ci/*, which are the
+# templates asdlc scaffolds into a *client* repo. This runs asdlc's mandatory
+# test suite on both Linux and macOS, because the suite shells out to git/sed/
+# subprocess and GNU vs BSD userlands diverge — a Linux-only run would let a
+# macOS-breaking regression (like the sed -i one this matrix was added for)
+# through unseen.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ['3.12']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # the gates diff against a merge base
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      # pyyaml so test_policy_parser actually runs the fallback-vs-PyYAML
+      # comparison instead of skipping it; pytest for the unit suites. The
+      # packaging test provisions `build` in its own throwaway venv, so
+      # nothing else is needed here.
+      - run: python3 -m pip install --upgrade pip pytest pyyaml
+
+      - name: Gate self-test (each gate blocks what it claims)
+        run: bash tests/test_gates.sh
+
+      - name: Packaging (wheel builds, installs clean, drives CLI from outside the tree)
+        run: bash tests/test_packaging.sh
+
+      - name: Unit tests (policy parser, wizard, adapters, practices, report)
+        run: PYTHONPATH=src python3 -m pytest tests/test_policy_parser.py tests/test_wizard.py tests/test_adapters.py tests/test_practices.py tests/test_report.py -q

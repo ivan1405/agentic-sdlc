@@ -3,10 +3,10 @@
 A tool-agnostic standard for AI-assisted software delivery. A developer writes a
 spec; agents plan, implement, test, and open a PR; **gates decide whether it
 merges**. Works whether the client bought Claude Code, Codex, Copilot, Cursor,
-or nothing.
+Gemini CLI, Windsurf, Aider, or nothing.
 
 ```bash
-pipx install .                       # or: PYTHONPATH=src python -m asdlc ...
+pipx install .                       # or: PYTHONPATH=src python3 -m asdlc ...
 asdlc init --tools claude-code codex --ci github
 asdlc new reject-empty-cart          # scaffold a change
 asdlc verify                         # the gates — same command locally and in CI
@@ -24,7 +24,7 @@ So this standardizes one level up:
 |---|---|---|
 | Model / agent CLI | months | the client |
 | SDD front-end (OpenSpec, Spec Kit, BMAD) | ~a year | rented, swappable |
-| **Artifact contract + gates + skills** | **years** | **this repo** |
+| **Artifact contract + gates + skills + practices** | **years** | **this repo** |
 | Git, PR, CI | decades | the industry |
 
 The generation step was never the bottleneck. **Verification and review are.** A
@@ -35,15 +35,23 @@ run whatever swarm they like against gates that do not care who wrote the code.
 ## What's in the box
 
 ```
-src/asdlc/cli.py            asdlc: init | new | verify | doctor
-src/asdlc/commands.py       renders the one workflow definition into each tool's command format
-src/asdlc/agents.py         renders the 6 role definitions into each tool's native agent format
+src/asdlc/cli.py            asdlc: init | new | verify | doctor | report | mcp
+src/asdlc/tui.py            the interactive `asdlc init` wizard's terminal/menu machinery
+src/asdlc/adapters/         the ONLY tool-specific code — one registry + renderers:
+  base.py                     the Adapter record: all a tool's per-vendor differences, as data
+  registry.py                 single source of truth: one Adapter entry per tool (add a tool here)
+  commands.py                 renders the one workflow definition into each tool's command format
+  agents.py                   renders the 6 role definitions into each tool's native agent format
+  render.py                   writes a tool's files into a repo (driven by the Adapter's fields)
 src/asdlc/sdd.py            shells out to OpenSpec/Spec Kit/BMAD's own installer, or writes Kiro's templates
+src/asdlc/practices.py      installs the selected practice packs and links them from the context file
+src/asdlc/report.py         asdlc report: adoption metrics from git + archived verify results (no API)
 src/asdlc/gates/            the standard: 7 checks, zero dependencies, one policy file per client
 src/asdlc/assets/           the payload asdlc init reads/renders into a client repo:
   templates/                  artifact contract — proposal, spec, design, tasks, ADR, AGENTS.md
   templates/kiro/             Kiro's steering docs — the one SDD methodology with no CLI to shell out to
-  skills/                     5 portable SKILL.md packs, copied into every selected tool's own skills dir
+  skills/                     5 portable SKILL.md packs, copied into each SKILL.md-reading tool's skills dir
+  practices/                  8 vendor-neutral engineering-practice docs, installed into docs/practices/
   commands/                   the workflow, written once — onboard/propose/design/implement/verify/archive
   agents/                     6 role definitions — technical-leader, solutions-architect, frontend-dev,
                                backend-dev, qa-engineer, security-engineer — written once, rendered per tool
@@ -77,8 +85,11 @@ scaffolding to help agents pass it.
 ```bash
 bash tests/test_gates.sh        # 9 realistic agent mistakes, each blocked by the right gate
 bash tests/test_packaging.sh    # builds a wheel, installs it clean, drives the CLI from outside the tree
-python -m pytest tests/test_policy_parser.py   # zero-dep YAML fallback == PyYAML on shipped files
+python3 -m pytest tests/        # unit suites: adapters, practices, report, wizard, policy parser
 ```
+
+CI runs the mandatory suite (all of the above) on Linux **and** macOS — the shell
+tests shell out to `git`/`sed`, and GNU vs BSD userlands diverge.
 
 A gate you have never seen fail is not a gate. Same for a claim you have never
 tested: the zero-dependency fallback parser is exercised by the packaging test
@@ -86,15 +97,17 @@ precisely because every dev box has PyYAML and would otherwise hide it.
 
 ## Portability
 
-The only tool-specific code in this repo is `commands.py` and `agents.py`, and
-the files they render are **generated at `asdlc init` time**, not committed:
+The only tool-specific code in this repo is the `src/asdlc/adapters/` package,
+and the files it renders are **generated at `asdlc init` time**, not committed:
 
 ```
 assets/commands/*.md     ->  asdlc init  ->  .claude/commands/     (Claude Code)
                                              .codex/prompts/       (Codex CLI)
                                              .github/prompts/      (Copilot)
                                              .cursor/commands/     (Cursor)
-                                             docs/agent-workflow.md (anything else)
+                                             .gemini/commands/     (Gemini CLI, .toml)
+                                             .windsurf/workflows/  (Windsurf, .md)
+                                             docs/agent-workflow.md (generic / Aider / anything else)
 
 assets/skills/*/SKILL.md ->  asdlc init  ->  .claude/skills/       (Claude Code)
                                              .codex/skills/        (Codex CLI)
@@ -105,6 +118,7 @@ assets/agents/*.md       ->  asdlc init  ->  .claude/agents/       (Claude Code,
                                              .codex/agents/        (Codex CLI, .toml — not Markdown)
                                              .github/agents/       (Copilot, .agent.md)
                                              .cursor/agents/       (Cursor, .md)
+                                             (Gemini/Windsurf have no native agent file — roles ride in AGENTS.md)
 ```
 
 Agents are the one place formatting differences become a real format
@@ -119,11 +133,15 @@ exists there). Copilot's `tools:` uses a different, unverified vocabulary,
 and Codex has no per-tool list at all — both are left without extra fields
 rather than guess.
 
-The workflow is written once. Per-vendor differences are frontmatter keys and an
-argument token, rendered by `commands.py`. A new agent CLI next quarter costs ~8
-lines in `commands.py`'s `TOOLS` dict, not a new methodology. Skills are copied,
-not shared — pick two tools and the 5 packs land twice, once per tool's own dir,
-so each tool's native discovery works without an indirection to chase.
+The workflow is written once. Per-vendor differences are data — dirs, filenames,
+a frontmatter/TOML style, an argument token — held in one place, `adapters/
+registry.py`. A new agent CLI next quarter costs **one `Adapter(...)` entry**
+there (that's how Gemini CLI and Windsurf were added), not a new methodology.
+`docs/adapter-verification.md` records which tool schemas were verified against a
+real example, and when. Skills are copied,
+not shared — pick two SKILL.md-reading tools and the 5 packs land twice, once per
+tool's own dir, so each tool's native discovery works without an indirection to
+chase. (Gemini CLI and Windsurf have no SKILL.md support, so they get none.)
 
 Context uses the standards, not our inventions: **AGENTS.md** (Linux Foundation's
 Agentic AI Foundation, read by 20+ tools, 60k+ repos) and **SKILL.md** (open
@@ -249,6 +267,36 @@ admin-approval step or an org policy blocking third-party app installs —
 check with whoever administers that workspace/org before assuming asdlc's
 config is wrong.
 
+## Practices
+
+The gates enforce *that* work is specified, traced, and reviewed. The **practice
+packs** say *how* the code inside should be written — the vendor-neutral
+engineering standards a consultancy actually bills for. Eight short docs ship in
+`assets/practices/`:
+
+`immutability` · `small-units` · `boundary-validation` · `test-first` ·
+`evidence-based-completion` · `secure-by-default` · `surgical-changes` ·
+`clarify-before-coding`
+
+`asdlc init` copies the selected packs into the client repo's `docs/practices/`
+and folds a lean `## Practices` section into the context file
+(AGENTS.md/CLAUDE.md) that links them — so every agent reads the standards
+without bloating the hub. Claude-only repos also get `@docs/practices/*.md`
+imports so Claude auto-loads them.
+
+```bash
+asdlc init --tools claude-code                       # all packs (default)
+asdlc init --tools codex --practices immutability test-first   # a subset
+asdlc init --tools cursor --practices                # none
+```
+
+The selection persists in `.asdlc/policy.yaml` (`practices:`), so a re-run
+remembers it, and `asdlc doctor` reports what's installed. Practices are
+**guidance, not a gate** — the point is that agents read them, not that
+`asdlc verify` blocks on them. A client tunes the set per engagement, or edits
+the docs in place. Content is distilled tool-agnostic — no vendor, no
+slash-commands, no assumptions about which agent runs it.
+
 ## Rollout
 
 Don't big-bang it. See [standard/04-adoption-playbook.md](standard/04-adoption-playbook.md).
@@ -256,9 +304,27 @@ Short version: two pilots, six weeks, `spec-drift: warn` on legacy repos, ratche
 to `fail` after a quarter. Measure PR lead time, review rework rate, escaped
 defects, and % of PRs with a current spec — or you have a slide deck, not a standard.
 
+`asdlc report` computes the git-derivable half of those numbers — merge
+throughput, PR lead time, and % of merged PRs that carried a spec — with no API
+call or dependency, plus a gate pass-rate if you point `--results-dir` at
+archived `asdlc verify --json` runs. Review rework rate and escaped defects need
+the PR/issue API, so it names them as such rather than guessing.
+
+```bash
+asdlc report --since "90 days ago"                  # git metrics
+asdlc report --results-dir ci-artifacts/ --json report.json
+```
+
 ## Docs
 
 - [01 — Artifact contract](standard/01-artifact-contract.md) — what each file is for, and the rules
 - [02 — Gates](standard/02-gates.md) — every check, its failure mode, and how to tune it
 - [03 — Definition of done](standard/03-definition-of-done.md) — the one-pager for the team
 - [04 — Adoption playbook](standard/04-adoption-playbook.md) — pilots, metrics, and the anti-patterns
+- [Adapter schema verification](docs/adapter-verification.md) — which tool formats were verified, and when
+
+## License & contributing
+
+Apache-2.0 — see [LICENSE](LICENSE). How to develop, run the suites, add a tool,
+and the SemVer policy (clients pin a tag): [CONTRIBUTING.md](CONTRIBUTING.md).
+Release history: [CHANGELOG.md](CHANGELOG.md).

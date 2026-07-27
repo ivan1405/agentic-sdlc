@@ -1,29 +1,24 @@
 """Render per-tool agent definitions from assets/agents/*.md.
 
-Same idea as commands.py: each role is written once, in assets/agents/, and
-per-vendor differences are just formatting — EXCEPT Codex, which is a real
-format difference, not a formatting one: its native agent file is TOML, not
-Markdown-with-frontmatter, so it gets its own serializer below instead of a
-frontmatter-string template like the other three.
+Each role is written once, in assets/agents/. Per-vendor differences are
+formatting — EXCEPT Codex, whose native agent file is TOML, not
+Markdown-with-frontmatter, so it gets its own serializer. Which style a tool
+uses is `Adapter.agent_style` in registry.py; this module renders each style.
 
-Tool/model/color restrictions are added ONLY where the exact schema has been
-confirmed against real examples, not guessed:
-  - Claude Code: `tools:` (comma list of built-in names: Read/Grep/Glob/Edit/
-    Write/Bash), `model: inherit`, `color:` — confirmed against a real
-    Claude Code agent file.
-  - Cursor: `model: inherit` (same semantics, confirmed) and `readonly: true`
-    for the two review-only roles — Cursor has no per-tool allow-list, but
-    `readonly` is a confirmed field that maps cleanly onto "reviews, doesn't
-    implement".
-  - Copilot's `tools:` uses a DIFFERENT vocabulary (code_search/readfile/...,
-    not Read/Grep/...) that hasn't been verified, and Codex has no per-tool
-    list at all (only the broader `sandbox_mode`) — both are left without
-    extra fields rather than guess.
+Tool/model/permission fields are emitted ONLY where the schema was confirmed
+against a real example (see docs/adapter-verification.md):
+  - "claude": `tools:` (built-in names), `model: inherit`, `color:`.
+  - "cursor": `model: inherit`, plus `readonly: true` on review-only roles.
+  - "plain" (Copilot): name + description only — its `tools:` vocabulary is
+    unverified, so nothing extra is guessed.
+  - "toml" (Codex): native TOML, no per-tool allow-list exists.
 """
 from __future__ import annotations
 
 import re
 from pathlib import Path
+
+from asdlc.adapters.registry import ADAPTERS
 
 ROLES = ["technical-leader", "solutions-architect", "frontend-dev", "backend-dev",
          "qa-engineer", "security-engineer"]
@@ -58,11 +53,11 @@ def parse(path: Path) -> tuple[str, str]:
     return desc, body
 
 
-def _frontmatter(tool: str, role: str, desc: str) -> str:
+def _frontmatter(style: str, role: str, desc: str) -> str:
     lines = ["---", f"name: {role}", f"description: {desc}"]
-    if tool == "claude-code":
+    if style == "claude":
         lines += [f"tools: {CLAUDE_TOOLS[role]}", "model: inherit", f"color: {CLAUDE_COLOR[role]}"]
-    elif tool == "cursor":
+    elif style == "cursor":
         lines.append("model: inherit")
         if role in CURSOR_READONLY:
             lines.append("readonly: true")
@@ -85,26 +80,22 @@ def _render_codex(name: str, desc: str, body: str) -> str:
             f'developer_instructions = """\n{escaped_body}"""\n')
 
 
-# name -> (dest dir, filename fmt, render function)
-TOOLS = {
-    "claude-code": (".claude/agents", "{name}.md"),
-    "cursor": (".cursor/agents", "{name}.md"),
-    "copilot": (".github/agents", "{name}.agent.md"),
-    "codex": (".codex/agents", "{name}.toml"),
-}
-
-
 def render_tool_files(tool: str, shared_dir: Path) -> dict[str, str]:
-    """Render {filename: content} for every role, for one tool."""
-    _, fname_fmt = TOOLS[tool]
+    """Render {filename: content} for every role, for one tool.
+
+    A tool with no native agent format (agent_style is None) renders nothing —
+    its role guidance travels via AGENTS.md instead."""
+    adapter = ADAPTERS[tool]
+    if adapter.agent_style is None:
+        return {}
     files: dict[str, str] = {}
     for role in ROLES:
         desc, body = parse(shared_dir / f"{role}.md")
-        if tool == "codex":
+        if adapter.agent_style == "toml":
             content = _render_codex(role, desc, body)
         else:
-            content = _frontmatter(tool, role, desc) + body
-        files[fname_fmt.format(name=role)] = content
+            content = _frontmatter(adapter.agent_style, role, desc) + body
+        files[adapter.agent_filename.format(name=role)] = content
     return files
 
 

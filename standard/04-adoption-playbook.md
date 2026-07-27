@@ -39,6 +39,14 @@ Then run normally for six weeks. Do not add gates mid-pilot.
 | Escaped defects (bugs found post-merge / change) | tickets | The number that decides if this is safe. |
 | % PRs with a current spec | `asdlc verify` history | Whether the standard is real or performed. |
 
+`asdlc report` computes the two git-derivable ones — PR lead time (branch age at
+merge) and % of merged PRs that carried a spec — plus merge throughput and, with
+`--results-dir`, a gate pass-rate from archived `asdlc verify --json` runs. It
+makes **no API call** (the zero-dependency rule holds), so review rework rate and
+escaped defects it reports as needing the PR/issue API — wire those from your CI
+(the `gh api`/`glab` step that already counts approvals is the place) or read them
+off GitHub/GitLab directly.
+
 Get a **two-week baseline before you start**, or you will be arguing from vibes in
 the readout, and vibes lose to whoever has a slide.
 

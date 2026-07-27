@@ -6,4 +6,8 @@ dist/
 coverage.xml
 .coverage
 asdlc-results.json
+asdlc-report.json
 openspec/
+
+# Local-only review/roadmap notes — not part of the shipped standard.
+REVIEW.md

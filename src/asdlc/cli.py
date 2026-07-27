@@ -11,44 +11,31 @@ Commands
   asdlc new <change-id>      Create a change folder from the artifact contract
   asdlc verify               Run the gate suite (the actual standard)
   asdlc doctor               Report which agent tools are wired up in this repo
+  asdlc report               Adoption metrics from git — lead time, throughput, spec coverage
 """
 from __future__ import annotations
 
 import argparse
-import contextlib
 import json
 import os
 import re
-import select
 import shutil
 import subprocess
 import sys
 from pathlib import Path
-
-# Arrow-key wizard input needs raw terminal access, which is platform-specific
-# and has no stdlib equivalent on the other OS — hence the try/except pair
-# instead of one import. _menu_supported() checks whichever of these landed.
-try:
-    import termios
-    import tty
-except ImportError:  # Windows
-    termios = None  # type: ignore[assignment]
-    tty = None  # type: ignore[assignment]
-
-try:
-    import msvcrt
-except ImportError:  # POSIX
-    msvcrt = None  # type: ignore[assignment]
 
 # The asset payload ships inside the package. Anything read at runtime must be
 # under ASSETS or gates/ — if it is not, it will not survive `pip install`.
 PKG = Path(__file__).resolve().parent
 ASSETS = PKG / "assets"
 
-from asdlc import agents, commands, mcp, sdd
+from asdlc import adapters, mcp, practices, report, sdd, tui
 from asdlc.gates.checks import ALL_CHECKS, CheckResult, Context, load_policy
+# ANSI colour constants live with the wizard's other terminal machinery in tui.
+from asdlc.tui import DIM, GREEN, RED, RESET, YELLOW
 
 MCP_CATALOG = mcp.load_catalog(ASSETS)
+PRACTICE_NAMES = practices.names(ASSETS)
 
 ARTIFACTS = ["proposal.md", "spec.md", "design.md", "tasks.md"]
 
@@ -148,6 +135,18 @@ def _read_sdd_choice(root: Path) -> str:
     return "none" if _unresolved(choice) else choice
 
 
+def _read_practices(root: Path) -> list[str] | None:
+    """The practice packs a prior `asdlc init` persisted, or None if never set
+    (unsubstituted %%PRACTICES%% token, or no policy yet)."""
+    val = load_policy(root, PKG).get("practices")
+    if val is None:
+        return None
+    if isinstance(val, str):
+        val = [x.strip() for x in val.split(",")]
+    cleaned = [v for v in val if v and not _unresolved(v)]
+    return cleaned or None
+
+
 # Checks that can only verify asdlc's own proposal/spec/design/tasks.md
 # contract — meaningless once a real SDD front-end's own commands (not
 # asdlc's /propose) are what's actually producing artifacts.
@@ -167,10 +166,6 @@ def _disable_checks(policy_text: str, names: list[str]) -> str:
             count=1,
         )
     return policy_text
-
-GREEN, RED, YELLOW, DIM, RESET = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
-if not sys.stdout.isatty() or os.environ.get("NO_COLOR"):
-    GREEN = RED = YELLOW = DIM = RESET = ""
 
 
 # --------------------------------------------------------------------------- #
@@ -228,12 +223,20 @@ def cmd_init(args: argparse.Namespace) -> int:
     changes_dir, specs_dir = _default_artifact_dirs(args.sdd)
     (root / ".asdlc").mkdir(exist_ok=True)
 
+    # Which practice packs to install: an explicit --practices (or wizard
+    # selection) wins; else whatever a prior init persisted; else all of them.
+    if getattr(args, "practices", None) is not None:
+        selected_practices = list(args.practices)
+    else:
+        selected_practices = _read_practices(root) or PRACTICE_NAMES
+
     # policy
     dst_policy = root / ".asdlc" / "policy.yaml"
     if not dst_policy.exists() or args.force:
         tpl = (PKG / "gates" / "policy.yaml").read_text()
         tpl = tpl.replace("%%CHANGES_DIR%%", changes_dir).replace("%%SPECS_DIR%%", specs_dir)
         tpl = tpl.replace("%%SDD_CHOICE%%", args.sdd)
+        tpl = tpl.replace("%%PRACTICES%%", ", ".join(selected_practices))
         relaxed = _relaxed_checks(args.sdd)
         if relaxed:
             tpl = _disable_checks(tpl, relaxed)
@@ -258,22 +261,33 @@ def cmd_init(args: argparse.Namespace) -> int:
     context_tpl = context_tpl.replace("{{CHANGES_DIR}}", changes_dir).replace("{{SPECS_DIR}}", specs_dir)
     context_tpl = context_tpl.replace("{{WORKFLOW_NOTE}}", _workflow_note(args.sdd))
 
-    agents = root / "AGENTS.md"
+    # Practices — copy the selected packs into docs/practices/ and fold a lean
+    # `## Practices` pointer section into the context file (or nothing if none
+    # were selected). Claude-only repos get @-imports so Claude auto-loads them.
+    practices_section = practices.install(
+        root, ASSETS, selected_practices,
+        inline_for_claude=inline_into_claude, force=args.force,
+    )
+    context_tpl = context_tpl.replace("{{PRACTICES}}", practices_section)
+    if selected_practices:
+        print(f"  {GREEN}+{RESET} docs/practices/               ({len(selected_practices)} pack(s), linked from {context_file})")
+
+    agents_md = root / "AGENTS.md"
     if not inline_into_claude:
-        if not agents.exists() or args.force:
+        if not agents_md.exists() or args.force:
             note = ("It is read natively by Codex, Cursor, Copilot, Gemini CLI, Aider, "
                      "Zed, Windsurf and others. Claude Code never reads this file directly "
                      "— it only reads CLAUDE.md — so `asdlc init --tools claude-code` "
                      "generates a one-line `@AGENTS.md` import there. One source of truth "
                      "either way.")
-            agents.write_text(context_tpl.replace("{{FILE_NOTE}}", note))
+            agents_md.write_text(context_tpl.replace("{{FILE_NOTE}}", note))
             print(f"  {GREEN}+{RESET} AGENTS.md                     (fill in the TODOs — this is the context contract)")
-    elif agents.exists():
+    elif agents_md.exists():
         # A previous `--tools` combo needed the AGENTS.md hub; this one
         # doesn't. Leaving it behind means it silently goes stale forever —
         # nothing would ever write to it again.
         if args.force:
-            agents.unlink()
+            agents_md.unlink()
             print(f"  {RED}-{RESET} AGENTS.md                     (removed — content is now inlined into CLAUDE.md instead)")
         else:
             print(f"  {YELLOW}!{RESET} AGENTS.md still exists but nothing reads it now that claude-code is "
@@ -306,7 +320,8 @@ def cmd_init(args: argparse.Namespace) -> int:
 
     # adapters
     for tool in args.tools:
-        n = render_adapter(root, tool, changes_dir, specs_dir, context_file, force=args.force)
+        n = adapters.render_adapter(root, tool, ASSETS, changes_dir, specs_dir,
+                                    context_file, force=args.force)
         print(f"  {GREEN}+{RESET} adapter: {tool:<20} ({n} files)")
 
     # SDD methodology
@@ -340,66 +355,6 @@ def cmd_init(args: argparse.Namespace) -> int:
         f"Then tune .asdlc/policy.yaml, and {next_step}.{gate_note}"
     )
     return 0
-
-
-# --------------------------------------------------------------------------- #
-# adapters — the ONLY tool-specific code in the whole standard
-# --------------------------------------------------------------------------- #
-ADAPTER_TARGETS = {
-    "claude-code": [(".claude/commands", "commands"), (".claude/skills", "__skills__"),
-                    (".claude/agents", "agents")],
-    "codex": [(".codex/prompts", "commands"), (".codex/skills", "__skills__"),
-              (".codex/agents", "agents")],
-    "copilot": [(".github/prompts", "commands"), (".github/skills", "__skills__"),
-                (".github/agents", "agents")],
-    "cursor": [(".cursor/commands", "commands"), (".cursor/skills", "__skills__"),
-               (".cursor/agents", "agents")],
-    "generic": [("docs/agent-workflow.md", "__single__")],
-}
-
-
-def render_adapter(root: Path, tool: str, changes_dir: str, specs_dir: str,
-                    context_file: str, force: bool = False) -> int:
-    if tool not in ADAPTER_TARGETS:
-        raise SystemExit(f"unknown tool '{tool}'. known: {', '.join(sorted(ADAPTER_TARGETS))}")
-    shared = ASSETS / "commands"
-    agents_shared = ASSETS / "agents"
-    count = 0
-    for rel, kind in ADAPTER_TARGETS[tool]:
-        dst = root / rel
-        if kind == "__skills__":
-            dst.mkdir(parents=True, exist_ok=True)
-            for skill in (ASSETS / "skills").glob("*/"):
-                target = dst / skill.name
-                if target.exists():
-                    if not force:
-                        continue
-                    shutil.rmtree(target)
-                shutil.copytree(skill, target)
-                count += 1
-        elif kind == "agents":
-            dst.mkdir(parents=True, exist_ok=True)
-            for name, content in sorted(agents.render_tool_files(tool, agents_shared).items()):
-                target = dst / name
-                if target.exists() and not force:
-                    continue
-                target.write_text(content)
-                count += 1
-        elif kind == "__single__":
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            doc = (commands.render_generic(shared, changes_dir, specs_dir, context_file)
-                   + "\n\n" + agents.render_generic(agents_shared))
-            dst.write_text(doc)
-            count += 1
-        else:
-            dst.mkdir(parents=True, exist_ok=True)
-            for name, content in sorted(commands.render_tool_files(tool, shared, changes_dir, specs_dir, context_file).items()):
-                target = dst / name
-                if target.exists() and not force:
-                    continue
-                target.write_text(content)
-                count += 1
-    return count
 
 
 # --------------------------------------------------------------------------- #
@@ -537,6 +492,14 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
         if path:
             print(f"  {GREEN}yes{RESET}  {name:<12} ({path})")
 
+    prac_dir = root / "docs" / "practices"
+    installed = sorted(p.stem for p in prac_dir.glob("*.md")) if prac_dir.exists() else []
+    print("\npractice packs installed (docs/practices/):")
+    if installed:
+        print(f"  {GREEN}{len(installed)}{RESET}  {', '.join(installed)}")
+    else:
+        print(f"  {YELLOW}none{RESET} — run `asdlc init --practices ...` (default installs all)")
+
     stale = []
     for cf in sorted((root / changes_dir).glob("*/")) if (root / changes_dir).exists() else []:
         tasks = cf / "tasks.md"
@@ -550,6 +513,50 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
         print("\nopen changes:")
         for s in stale:
             print(f"  - {s}")
+    return 0
+
+
+# --------------------------------------------------------------------------- #
+# report — adoption metrics (git-derived, API-free)
+# --------------------------------------------------------------------------- #
+def cmd_report(args: argparse.Namespace) -> int:
+    root = repo_root()
+    policy = load_policy(root, PKG)
+    source_globs = policy.get("source_globs") or ["src/**"]
+    changes_dir, _ = _read_artifact_dirs(root)
+    results_dir = Path(args.results_dir) if args.results_dir else None
+
+    m = report.build(root, since=args.since, results_dir=results_dir,
+                     source_globs=source_globs, changes_dir=changes_dir)
+
+    if args.json:
+        Path(args.json).write_text(json.dumps(m, indent=2))
+
+    print(f"{DIM}adoption metrics — since {m['since']}  (git history on the current branch){RESET}\n")
+    print(f"  merges (PRs to mainline)   {m['merges']}")
+    lt = m["lead_time"]
+    print(f"  PR lead time median/p90    {lt['median']} / {lt['p90']}   {DIM}[{lt['measured']} measured]{RESET}")
+    sc = m["spec_coverage"]
+    if sc["pct"] is None:
+        print(f"  PRs carrying a spec        {DIM}n/a — no production code changed in window{RESET}")
+    else:
+        print(f"  PRs carrying a spec        {sc['pct']}%   {DIM}[{sc['with_spec']}/{sc['production_merges']} production PRs]{RESET}")
+
+    vh = m["verify_history"]
+    if vh is not None:
+        print(f"\n  gate pass-rate             {vh['green_pct']}%   {DIM}[{vh['runs']} verify run(s)]{RESET}")
+        for name, n in vh["gate_fails"].items():
+            print(f"      {YELLOW}{name}{RESET}: {n} fail(s)")
+    else:
+        print(f"\n  gate pass-rate             {DIM}n/a — pass --results-dir with archived `asdlc verify --json` files{RESET}")
+
+    print(f"\n  {DIM}not derivable from git alone:{RESET}")
+    for k, why in m["unavailable"].items():
+        print(f"      {k}: {DIM}{why}{RESET}")
+
+    if m["merges"] == 0:
+        print(f"\n{YELLOW}No merges in the window.{RESET} A shallow clone hides history "
+              f"(CI needs fetch-depth: 0); or widen it, e.g. --since '1 year ago'.")
     return 0
 
 
@@ -594,269 +601,22 @@ def cmd_mcp_remove(args: argparse.Namespace) -> int:
 # --------------------------------------------------------------------------- #
 # setup wizard — only for `asdlc init` with zero flags, at a real terminal.
 # Anything scripted (CI, tests, `--tools ...`) always goes through argparse
-# untouched below; this never changes what a flag-driven invocation does.
+# untouched below; this never changes what a flag-driven invocation does. The
+# terminal/menu primitives it drives live in tui.py; only the catalog-aware
+# orchestration stays here.
 # --------------------------------------------------------------------------- #
-# Built from centered pieces, not hand-counted spaces — a hardcoded ASCII-art
-# string is one string-length change away from misaligned borders.
-_ASDLC_LETTERS = {
-    "A": [" █████╗ ", "██╔══██╗", "███████║", "██╔══██║", "██║  ██║", "╚═╝  ╚═╝"],
-    "S": ["███████╗", "██╔════╝", "███████╗", "╚════██║", "███████║", "╚══════╝"],
-    "D": ["██████╗ ", "██╔══██╗", "██║  ██║", "██║  ██║", "██████╔╝", "╚═════╝ "],
-    "L": ["██╗     ", "██║     ", "██║     ", "██║     ", "███████╗", "╚══════╝"],
-    "C": [" ██████╗", "██╔════╝", "██║     ", "██║     ", "╚██████╗", " ╚═════╝"],
-}
-
-
-def _banner() -> str:
-    art_rows = ["".join(_ASDLC_LETTERS[ch][r] for ch in "ASDLC") for r in range(6)]
-    tagline = "Agentic SDLC — setup wizard"
-    width = max(len(r) for r in art_rows) + 4
-    top, bottom = "╔" + "═" * width + "╗", "╚" + "═" * width + "╝"
-    blank = f"║{' ' * width}║"
-    lines = [top, blank, *(f"║{r.center(width)}║" for r in art_rows),
-              blank, f"║{tagline.center(width)}║", blank, bottom]
-    return "\n".join(lines)
-
-
-def _prompt(question: str, default: str = "") -> str:
-    suffix = f" [{default}]" if default else ""
-    return input(f"{question}{suffix}: ").strip() or default
-
-
-# --- Arrow-key menu -----------------------------------------------------
-#
-# _menu_supported() gates this entirely: piped/redirected stdin (CI, the
-# test suite's mocked input()) or ASDLC_WIZARD_PLAIN=1 fall straight through
-# to the type-a-number prompts below, unchanged. The key-decoding and
-# cursor/selection transitions are pure functions so they're unit-testable
-# without a real terminal; only the render/raw-mode loop around them isn't
-# (same tradeoff test_wizard.py already made for the wizard's own TTY gate).
-
-def _menu_supported() -> bool:
-    if os.environ.get("ASDLC_WIZARD_PLAIN"):
-        return False
-    if not (sys.stdin.isatty() and sys.stdout.isatty()):
-        return False
-    return msvcrt is not None if os.name == "nt" else termios is not None
-
-
-@contextlib.contextmanager
-def _raw_mode():
-    if os.name == "nt":
-        yield
-        return
-    fd = sys.stdin.fileno()
-    old = termios.tcgetattr(fd)
-    try:
-        # cbreak, not setraw: raw mode also disables output post-processing
-        # (OPOST), so a bare "\n" stops implying a carriage return and every
-        # redrawn line drifts right of the last. cbreak only turns off
-        # canonical/echo input handling, which is all we need for one-key-
-        # at-a-time reads. (It also leaves ISIG on, so Ctrl-C raises
-        # KeyboardInterrupt normally instead of us having to fake it.)
-        tty.setcbreak(fd)
-        yield
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old)
-
-
-def _getch_posix() -> bytes:
-    fd = sys.stdin.fileno()
-    b = os.read(fd, 1)
-    # Arrow keys arrive as a 3-byte escape sequence (ESC [ A/B/C/D) sent back
-    # to back; a lone Escape keypress is just the one byte with nothing
-    # following, which the short select() timeout distinguishes.
-    if b == b"\x1b" and select.select([fd], [], [], 0.05)[0]:
-        b += os.read(fd, 1)
-        if b == b"\x1b[" and select.select([fd], [], [], 0.05)[0]:
-            b += os.read(fd, 1)
-    return b
-
-
-def _getch_windows() -> bytes:
-    b = msvcrt.getch()
-    if b in (b"\xe0", b"\x00"):  # arrow/function key prefix
-        b += msvcrt.getch()
-    return b
-
-
-def _decode_key(raw: bytes) -> str:
-    """Normalize a raw keypress — a POSIX escape sequence or a Windows
-    msvcrt.getch() pair — into UP/DOWN/ENTER/SPACE/QUIT. Anything else
-    decodes to "" and is ignored by the menu loop."""
-    if raw in (b"\r", b"\n"):
-        return "ENTER"
-    if raw == b" ":
-        return "SPACE"
-    if raw in (b"\x03", b"\x1b"):  # Ctrl-C, or Escape with nothing following
-        return "QUIT"
-    if raw in (b"\x1b[A", b"\xe0H", b"\x00H"):
-        return "UP"
-    if raw in (b"\x1b[B", b"\xe0P", b"\x00P"):
-        return "DOWN"
-    return ""
-
-
-def _read_key() -> str:
-    raw = _getch_windows() if os.name == "nt" else _getch_posix()
-    return _decode_key(raw)
-
-
-def _apply_key_single(cursor: int, key: str, count: int) -> tuple[int, str]:
-    """One step of the single-select menu: given the highlighted index and a
-    decoded key, returns (new_cursor, outcome) — outcome is 'move', 'confirm',
-    'quit', or 'noop'."""
-    if key == "UP":
-        return (cursor - 1) % count, "move"
-    if key == "DOWN":
-        return (cursor + 1) % count, "move"
-    if key == "ENTER":
-        return cursor, "confirm"
-    if key == "QUIT":
-        return cursor, "quit"
-    return cursor, "noop"
-
-
-def _apply_key_multi(cursor: int, selected: frozenset[int], key: str,
-                      count: int) -> tuple[int, frozenset[int], str]:
-    """Same idea as _apply_key_single, for the checkbox multi-select — SPACE
-    toggles the highlighted row in/out of `selected`."""
-    if key == "UP":
-        return (cursor - 1) % count, selected, "move"
-    if key == "DOWN":
-        return (cursor + 1) % count, selected, "move"
-    if key == "SPACE":
-        toggled = (selected - {cursor}) if cursor in selected else (selected | {cursor})
-        return cursor, toggled, "toggle"
-    if key == "ENTER":
-        return cursor, selected, "confirm"
-    if key == "QUIT":
-        return cursor, selected, "quit"
-    return cursor, selected, "noop"
-
-
-def _render_menu(prev_lines: int, question: str, options: list[str], cursor: int,
-                  selected: frozenset[int] | None, blurbs: dict[str, str] | None) -> int:
-    """Redraw the menu in place — clear what the previous call printed, then
-    print the current state — and return the new line count for next time."""
-    if prev_lines:
-        sys.stdout.write(f"\033[{prev_lines}A\r\033[J")
-    # One list entry per visual line — no embedded "\n"s — so len(rendered)
-    # below is an accurate line count for the next call's cursor-up.
-    rendered = ["", question]
-    for i, opt in enumerate(options):
-        pointer = "❯" if i == cursor else " "
-        box = "" if selected is None else ("[x] " if i in selected else "[ ] ")
-        style, reset = (GREEN, RESET) if i == cursor else ("", "")
-        rendered.append(f"  {style}{pointer} {box}{opt}{reset}")
-        if blurbs and opt in blurbs:
-            rendered.append(f"     {DIM}{blurbs[opt]}{RESET}")
-    hint = "space to toggle, enter to confirm" if selected is not None else "enter to confirm"
-    rendered.append(f"{DIM}(↑/↓ to move, {hint}){RESET}")
-    sys.stdout.write("\n".join(rendered) + "\n")
-    sys.stdout.flush()
-    return len(rendered)
-
-
-def _arrow_choice(question: str, options: list[str], default: str,
-                   blurbs: dict[str, str] | None = None) -> str | None:
-    """Interactive arrow-key single-select. Returns the chosen option, or
-    None if the terminal can't support it — callers fall back to the
-    type-a-number prompt in that case."""
-    if not _menu_supported():
-        return None
-    cursor = options.index(default) if default in options else 0
-    prev_lines = 0
-    try:
-        with _raw_mode():
-            while True:
-                prev_lines = _render_menu(prev_lines, question, options, cursor, None, blurbs)
-                cursor, outcome = _apply_key_single(cursor, _read_key(), len(options))
-                if outcome == "confirm":
-                    return options[cursor]
-                if outcome == "quit":
-                    return None
-    except Exception:
-        return None
-
-
-def _arrow_multi(question: str, options: list[str], default: list[str],
-                  blurbs: dict[str, str] | None = None) -> list[str] | None:
-    """Interactive arrow-key checkbox multi-select. Returns the picked
-    options, or None if the terminal can't support it."""
-    if not _menu_supported():
-        return None
-    cursor = 0
-    selected = frozenset(i for i, opt in enumerate(options) if opt in default)
-    prev_lines = 0
-    try:
-        with _raw_mode():
-            while True:
-                prev_lines = _render_menu(prev_lines, question, options, cursor, selected, blurbs)
-                cursor, selected, outcome = _apply_key_multi(cursor, selected, _read_key(), len(options))
-                if outcome == "confirm":
-                    return [opt for i, opt in enumerate(options) if i in selected] or default
-                if outcome == "quit":
-                    return None
-    except Exception:
-        return None
-
-
-def _prompt_choice(question: str, options: list[str], default: str,
-                    blurbs: dict[str, str] | None = None) -> str:
-    picked = _arrow_choice(question, options, default, blurbs)
-    if picked is not None:
-        return picked
-    print(f"\n{question}")
-    for i, opt in enumerate(options, 1):
-        print(f"  {i}. {opt}{'  (default)' if opt == default else ''}")
-        if blurbs and opt in blurbs:
-            print(f"     {DIM}{blurbs[opt]}{RESET}")
-    ans = input(f"choice [1-{len(options)}, default {default}]: ").strip()
-    if not ans:
-        return default
-    if ans.isdigit() and 1 <= int(ans) <= len(options):
-        return options[int(ans) - 1]
-    if ans in options:
-        return ans
-    print(f"  {YELLOW}unrecognized — using default: {default}{RESET}")
-    return default
-
-
-def _prompt_multi(question: str, options: list[str], default: list[str],
-                   blurbs: dict[str, str] | None = None) -> list[str]:
-    picked = _arrow_multi(question, options, default, blurbs)
-    if picked is not None:
-        return picked
-    print(f"\n{question}")
-    for i, opt in enumerate(options, 1):
-        print(f"  {i}. {opt}{'  (default)' if opt in default else ''}")
-        if blurbs and opt in blurbs:
-            print(f"     {DIM}{blurbs[opt]}{RESET}")
-    ans = input(f"choices, comma-separated [default: {','.join(default)}]: ").strip()
-    if not ans:
-        return default
-    picked = []
-    for tok in (t.strip() for t in ans.split(",")):
-        if tok.isdigit() and 1 <= int(tok) <= len(options):
-            picked.append(options[int(tok) - 1])
-        elif tok in options:
-            picked.append(tok)
-    return picked or default
-
-
 def _run_wizard(root: Path) -> argparse.Namespace:
-    print(f"{GREEN}{_banner()}{RESET}")
+    print(f"{GREEN}{tui._banner()}{RESET}")
     print()
     print("No flags given — let's set this repo up interactively.")
     print("(Prefer scripting this? `asdlc init --help` for the flags. Menus below use "
           "↑/↓ + enter/space; set ASDLC_WIZARD_PLAIN=1 to type answers instead.)\n")
-    project = _prompt("Project name", root.name)
-    stack = _prompt("Describe your stack (languages/frameworks) in a few words")
-    tools = _prompt_multi("Which agent tool(s) does this repo use?",
-                           sorted(ADAPTER_TARGETS), ["claude-code"])
+    project = tui._prompt("Project name", root.name)
+    stack = tui._prompt("Describe your stack (languages/frameworks) in a few words")
+    tools = tui._prompt_multi("Which agent tool(s) does this repo use?",
+                              sorted(adapters.TOOL_NAMES), ["claude-code"])
     mcp_names = sorted(MCP_CATALOG)
-    mcp_choice = _prompt_multi(
+    mcp_choice = tui._prompt_multi(
         "Install any MCP servers? Adds a pointer to .mcp.json — remote/OAuth "
         "only, no secrets stored here; each person still authenticates in "
         "their own agent tool afterwards (`asdlc mcp list` for details).",
@@ -865,8 +625,15 @@ def _run_wizard(root: Path) -> argparse.Namespace:
                 **{n: MCP_CATALOG[n]["note"] for n in mcp_names}},
     )
     mcp_choice = [m for m in mcp_choice if m != "none"]
-    ci = _prompt_choice("CI provider?", ["github", "gitlab", "none"], "github")
-    sdd_choice = _prompt_choice(
+    practice_choice = tui._prompt_multi(
+        "Which engineering practices to install? They land in docs/practices/ "
+        "and get linked from your context file — vendor-neutral standards every "
+        "agent reads. Default: all.",
+        PRACTICE_NAMES, PRACTICE_NAMES,
+        blurbs={n: s for n, _, s in practices.available(ASSETS)},
+    )
+    ci = tui._prompt_choice("CI provider?", ["github", "gitlab", "none"], "github")
+    sdd_choice = tui._prompt_choice(
         "SDD front-end? Installs the real tool via its own installer (npx/uv) "
         "and disables asdlc's own spec gates for it — 'none' keeps asdlc's own "
         "gates on and installs nothing extra.",
@@ -876,7 +643,7 @@ def _run_wizard(root: Path) -> argparse.Namespace:
     print()
     return argparse.Namespace(project=project or None, stack=stack or None,
                                tools=tools, ci=ci, sdd=sdd_choice, mcp=mcp_choice,
-                               force=False)
+                               practices=practice_choice, force=False)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -891,10 +658,12 @@ def main(argv: list[str] | None = None) -> int:
     pi.add_argument("--project")
     pi.add_argument("--stack")
     pi.add_argument("--tools", nargs="+", default=["claude-code"],
-                    choices=sorted(ADAPTER_TARGETS))
+                    choices=sorted(adapters.TOOL_NAMES))
     pi.add_argument("--ci", default="github", choices=["github", "gitlab", "none"])
     pi.add_argument("--sdd", default="none", choices=SDD_CHOICES,
                     help="SDD methodology to install (shells out to its own installer; kiro is templates-only)")
+    pi.add_argument("--practices", nargs="*", choices=PRACTICE_NAMES, default=None, metavar="NAME",
+                    help="engineering-practice packs to install (default: all; empty list: none)")
     pi.add_argument("--force", action="store_true")
     pi.set_defaults(func=cmd_init)
 
@@ -911,6 +680,12 @@ def main(argv: list[str] | None = None) -> int:
 
     pd = sub.add_parser("doctor", help="report repo wiring")
     pd.set_defaults(func=cmd_doctor)
+
+    prp = sub.add_parser("report", help="adoption metrics from git + archived verify results")
+    prp.add_argument("--since", default="90 days ago", help="git date window (default: '90 days ago')")
+    prp.add_argument("--results-dir", help="dir of archived `asdlc verify --json` outputs, for gate pass-rate")
+    prp.add_argument("--json", help="write machine-readable metrics here")
+    prp.set_defaults(func=cmd_report)
 
     pm = sub.add_parser("mcp", help="manage this repo's .mcp.json against asdlc's MCP catalog")
     mcp_sub = pm.add_subparsers(dest="mcp_cmd", required=True)
