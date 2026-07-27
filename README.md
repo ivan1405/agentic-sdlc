@@ -3,7 +3,7 @@
 A tool-agnostic standard for AI-assisted software delivery. A developer writes a
 spec; agents plan, implement, test, and open a PR; **gates decide whether it
 merges**. Works whether the client bought Claude Code, Codex, Copilot, Cursor,
-or nothing.
+Gemini CLI, Windsurf, Aider, or nothing.
 
 ```bash
 pipx install .                       # or: PYTHONPATH=src python3 -m asdlc ...
@@ -24,7 +24,7 @@ So this standardizes one level up:
 |---|---|---|
 | Model / agent CLI | months | the client |
 | SDD front-end (OpenSpec, Spec Kit, BMAD) | ~a year | rented, swappable |
-| **Artifact contract + gates + skills** | **years** | **this repo** |
+| **Artifact contract + gates + skills + practices** | **years** | **this repo** |
 | Git, PR, CI | decades | the industry |
 
 The generation step was never the bottleneck. **Verification and review are.** A
@@ -35,9 +35,10 @@ run whatever swarm they like against gates that do not care who wrote the code.
 ## What's in the box
 
 ```
-src/asdlc/cli.py            asdlc: init | new | verify | doctor
+src/asdlc/cli.py            asdlc: init | new | verify | doctor | report | mcp
 src/asdlc/tui.py            the interactive `asdlc init` wizard's terminal/menu machinery
-src/asdlc/adapters/         the ONLY tool-specific code — one registry, two renderers:
+src/asdlc/adapters/         the ONLY tool-specific code — one registry + renderers:
+  base.py                     the Adapter record: all a tool's per-vendor differences, as data
   registry.py                 single source of truth: one Adapter entry per tool (add a tool here)
   commands.py                 renders the one workflow definition into each tool's command format
   agents.py                   renders the 6 role definitions into each tool's native agent format
@@ -49,7 +50,7 @@ src/asdlc/gates/            the standard: 7 checks, zero dependencies, one polic
 src/asdlc/assets/           the payload asdlc init reads/renders into a client repo:
   templates/                  artifact contract — proposal, spec, design, tasks, ADR, AGENTS.md
   templates/kiro/             Kiro's steering docs — the one SDD methodology with no CLI to shell out to
-  skills/                     5 portable SKILL.md packs, copied into every selected tool's own skills dir
+  skills/                     5 portable SKILL.md packs, copied into each SKILL.md-reading tool's skills dir
   practices/                  8 vendor-neutral engineering-practice docs, installed into docs/practices/
   commands/                   the workflow, written once — onboard/propose/design/implement/verify/archive
   agents/                     6 role definitions — technical-leader, solutions-architect, frontend-dev,
@@ -84,8 +85,11 @@ scaffolding to help agents pass it.
 ```bash
 bash tests/test_gates.sh        # 9 realistic agent mistakes, each blocked by the right gate
 bash tests/test_packaging.sh    # builds a wheel, installs it clean, drives the CLI from outside the tree
-python3 -m pytest tests/test_policy_parser.py  # zero-dep YAML fallback == PyYAML on shipped files
+python3 -m pytest tests/        # unit suites: adapters, practices, report, wizard, policy parser
 ```
+
+CI runs the mandatory suite (all of the above) on Linux **and** macOS — the shell
+tests shell out to `git`/`sed`, and GNU vs BSD userlands diverge.
 
 A gate you have never seen fail is not a gate. Same for a claim you have never
 tested: the zero-dependency fallback parser is exercised by the packaging test
@@ -135,8 +139,9 @@ registry.py`. A new agent CLI next quarter costs **one `Adapter(...)` entry**
 there (that's how Gemini CLI and Windsurf were added), not a new methodology.
 `docs/adapter-verification.md` records which tool schemas were verified against a
 real example, and when. Skills are copied,
-not shared — pick two tools and the 5 packs land twice, once per tool's own dir,
-so each tool's native discovery works without an indirection to chase.
+not shared — pick two SKILL.md-reading tools and the 5 packs land twice, once per
+tool's own dir, so each tool's native discovery works without an indirection to
+chase. (Gemini CLI and Windsurf have no SKILL.md support, so they get none.)
 
 Context uses the standards, not our inventions: **AGENTS.md** (Linux Foundation's
 Agentic AI Foundation, read by 20+ tools, 60k+ repos) and **SKILL.md** (open
@@ -316,3 +321,10 @@ asdlc report --results-dir ci-artifacts/ --json report.json
 - [02 — Gates](standard/02-gates.md) — every check, its failure mode, and how to tune it
 - [03 — Definition of done](standard/03-definition-of-done.md) — the one-pager for the team
 - [04 — Adoption playbook](standard/04-adoption-playbook.md) — pilots, metrics, and the anti-patterns
+- [Adapter schema verification](docs/adapter-verification.md) — which tool formats were verified, and when
+
+## License & contributing
+
+Apache-2.0 — see [LICENSE](LICENSE). How to develop, run the suites, add a tool,
+and the SemVer policy (clients pin a tag): [CONTRIBUTING.md](CONTRIBUTING.md).
+Release history: [CHANGELOG.md](CHANGELOG.md).
