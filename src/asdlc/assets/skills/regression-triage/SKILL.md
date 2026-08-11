@@ -18,6 +18,14 @@ git log --oneline -20 -- <path>           # who else has been in here lately
 git log --format='%an' -- <path> | sort | uniq -c | sort -rn   # who to ask
 ```
 
+If `graphify-out/graph.json` exists (built by `/onboard`) and `graphify` is on
+PATH, query it for callers of `<symbol>` instead of `git grep` — its
+EXTRACTED/INFERRED edges catch dynamic dispatch that grep can't. Re-run
+`graphify . --update` first if it predates recent changes to the affected area
+— a stale graph on a blast-radius check is worse than none, since it reads as
+confidence you don't have. If `graphify` isn't on PATH, don't install it
+(`/onboard` is the only place that does) — use `git grep` instead.
+
 Then answer:
 - **Callers** — what invokes what I changed, including tests, jobs, and scripts?
 - **Data** — what else reads or writes this table/column/key? Is the migration

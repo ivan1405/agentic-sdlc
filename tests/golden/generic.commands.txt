@@ -218,6 +218,12 @@ wrote the design.
 
 1. Read `openspec/changes/<change-id>/proposal.md` and `spec.md`, plus `AGENTS.md`.
 2. Explore the actual codebase before proposing anything. Name the files you read.
+   If `graphify-out/graph.json` exists (see `AGENTS.md`) and `graphify`
+   is on PATH, query it for module boundaries and dependents before
+   hand-exploring — re-run `graphify . --update` first if it predates recent
+   changes to the affected area; a stale graph is worse than no graph. If
+   `graphify` isn't on PATH, don't install it (`/onboard` is the only place
+   that does) — fall back to hand-exploring.
 3. Fill in `design.md`:
    - Approach, and at least one real alternative with why it lost.
    - Affected surfaces: files, contracts, data model, feature flag.
