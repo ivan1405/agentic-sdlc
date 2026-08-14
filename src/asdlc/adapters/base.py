@@ -38,6 +38,12 @@ class Adapter:
     # SKILL.md packs. None for a tool that doesn't read the SKILL.md standard.
     skills_dir: Optional[str] = None
 
+    # Whether the tool natively reads AGENTS.md for shared context. A verified
+    # per-tool fact, not derivable from agents_dir — e.g. gemini/windsurf have
+    # no native agent file but also don't read AGENTS.md (gemini uses
+    # GEMINI.md; windsurf has no confirmed context file).
+    reads_agents_md: bool = False
+
     # A single concatenated doc, for tools with no native command/agent files
     # (the paste-into-anything fallback). Mutually exclusive with the dirs above.
     single_file: Optional[str] = None

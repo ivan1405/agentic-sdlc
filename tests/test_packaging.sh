@@ -47,6 +47,7 @@ for f in \
   "assets/commands/onboard.md" \
   "assets/commands/jira-import.md" \
   "assets/agents/security-engineer.md" \
+  "assets/agents/roles.yaml" \
   "assets/templates/kiro/product.md.tpl" \
   "assets/ci/github/agentic-sdlc.yml" \
   "assets/ci/gitlab/agentic-sdlc.yml" ; do

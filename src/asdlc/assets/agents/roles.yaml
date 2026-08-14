@@ -1,0 +1,63 @@
+# Per-role, per-tool agent permissions. This file, together with the roles'
+# own {name}.md next to it, is the entire contract for a role — nothing about
+# roles lives in Python.
+#
+# To add a role tomorrow: drop {name}.md here (body + a leading `%%DESC: ...%%`
+# line, see any existing file), and add a matching entry below. Both sides are
+# required — `asdlc` refuses to render (with a clear error naming the gap)
+# if a .md has no entry here or an entry here has no .md. Order here is
+# render order.
+#
+# Each role is a map of ADAPTERS tool name -> that tool's permission fields.
+# Only claude-code and cursor have a block below because those are the only
+# two tools whose permission schema is actually VERIFIED against a real
+# vendor example (see docs/adapter-verification.md) — codex has no per-tool
+# allow-list concept confirmed, copilot's `tools:` vocabulary is unconfirmed,
+# and gemini/windsurf have no native agent-file format to attach permissions
+# to at all. This is a verification gap, not a config limitation: once one of
+# those schemas is confirmed, add its block here (e.g. `codex:` /
+# `sandbox_mode: ...`) plus a matching branch in agents.py's `_frontmatter` —
+# no other role needs to change.
+#
+#   claude-code:
+#     tools:  `tools:` allow-list (comma-separated built-in names). Give
+#             review-only roles no Edit/Write/Bash; implementers get what
+#             they need to do the job. Required.
+#     color:  agent color. Required.
+#   cursor:
+#     readonly: optional, default false. `readonly: true` for review-only
+#               roles (no per-tool allow-list exists in Cursor).
+
+technical-leader:
+  claude-code:
+    tools: "Read, Grep, Glob"
+    color: blue
+  cursor:
+    readonly: true
+
+solutions-architect:
+  claude-code:
+    tools: "Read, Grep, Glob, Edit, Write, Bash"
+    color: magenta
+
+frontend-dev:
+  claude-code:
+    tools: "Read, Grep, Glob, Edit, Write, Bash"
+    color: cyan
+
+backend-dev:
+  claude-code:
+    tools: "Read, Grep, Glob, Edit, Write, Bash"
+    color: green
+
+qa-engineer:
+  claude-code:
+    tools: "Read, Grep, Glob, Edit, Bash"
+    color: yellow
+
+security-engineer:
+  claude-code:
+    tools: "Read, Grep, Glob, Bash"
+    color: red
+  cursor:
+    readonly: true
