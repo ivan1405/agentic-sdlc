@@ -53,7 +53,8 @@ YAML_AGENT_TOOLS = ["claude-code", "copilot", "cursor"]
 # what a fresh `asdlc init` (no SDD front-end) would use.
 CHANGES_DIR, SPECS_DIR, CONTEXT_FILE = "openspec/changes", "openspec/specs", "AGENTS.md"
 
-EXPECTED_COMMANDS = {"onboard", "jira-import", "propose", "design", "implement", "verify", "archive"}
+EXPECTED_COMMANDS = {"onboard", "jira-import", "azure-devops-import", "propose",
+                     "design", "implement", "verify", "archive"}
 EXPECTED_ROLES = {"technical-leader", "solutions-architect", "frontend-dev",
                   "backend-dev", "qa-engineer", "security-engineer"}
 

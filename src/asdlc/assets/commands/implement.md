@@ -38,20 +38,28 @@ Then:
    `gh`/git CLI is on PATH. No `github` entry: today's manual flow, unchanged.
    This is pre-authorized — open it yourself, don't ask first, and don't open
    it any earlier than this (not until `asdlc verify` is green).
-10. Jira handoff — only if `proposal.md`'s `Ticket:` field names one **and**
-    `.mcp.json` has an `atlassian` or `atlassian-self-hosted` entry. Once the
-    PR from step 9 is open, use the Atlassian MCP tools to: look at that
-    ticket's available transitions and move it to whichever one means "ready
-    for review" (never guess a status name that isn't an actual transition on
-    that ticket — ask a human if it's genuinely ambiguous), then comment on
-    the ticket with the PR link, saying it's done and ready for review. No
-    `Ticket:` value, or no atlassian* entry: skip this step entirely, nothing
-    to sync.
+10. Ticket handoff — only if `proposal.md`'s `Ticket:` field names one **and**
+    `.mcp.json` has a matching MCP entry for whichever system it's from. Once
+    the PR from step 9 is open:
+    - **Jira** (`Ticket:` is a Jira key, `.mcp.json` has `atlassian` or
+      `atlassian-self-hosted`) — use the Atlassian MCP tools to look at that
+      ticket's available transitions and move it to whichever one means
+      "ready for review", then comment on the ticket with the PR link, saying
+      it's done and ready for review.
+    - **Azure DevOps** (`Ticket:` is a work item ID, `.mcp.json` has
+      `azure-devops` or `azure-devops-local`) — use the Azure DevOps MCP tools
+      to look at that work item's available states and move it to whichever
+      one means "ready for review", then comment on the work item with the PR
+      link, saying it's done and ready for review.
+    In both cases: never guess a status/state name that isn't an actual
+    transition on that ticket/work item — ask a human if it's genuinely
+    ambiguous. No `Ticket:` value, or no matching MCP entry for the system it
+    names: skip this step entirely, nothing to sync.
 11. This step never merges, approves, or skips a gate — it only opens the PR
     and touches the ticket, after `asdlc verify` (step 7, including
     `human-approval`'s named `Approved-by:`) is already green. Never merge
     your own PR, same boundary as always — and never commit or push to `main`
     at any point in this flow.
 
-Exact tool names on the GitHub/Atlassian MCP servers may differ by version —
-treat your actual tool list as ground truth over the wording above.
+Exact tool names on the GitHub/Atlassian/Azure DevOps MCP servers may differ by
+version — treat your actual tool list as ground truth over the wording above.

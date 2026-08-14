@@ -46,6 +46,7 @@ for f in \
   "assets/commands/propose.md" \
   "assets/commands/onboard.md" \
   "assets/commands/jira-import.md" \
+  "assets/commands/azure-devops-import.md" \
   "assets/agents/security-engineer.md" \
   "assets/agents/roles.yaml" \
   "assets/templates/kiro/product.md.tpl" \
@@ -76,6 +77,8 @@ check "practice selection persisted into policy.yaml" \
   grep -qE '^practices: ".*test-first' "$REPO/.asdlc/policy.yaml"
 check "jira_import.auto_approve flag present in policy.yaml" \
   grep -q 'auto_approve:' "$REPO/.asdlc/policy.yaml"
+check "azure_import.auto_approve flag present in policy.yaml" \
+  bash -c "grep -A1 'azure_import:' '$REPO/.asdlc/policy.yaml' | grep -q 'auto_approve: true'"
 check "--practices all installs a domain pack too" \
   bash -c "cd '$REPO' && env NO_COLOR=1 '$VENV/bin/asdlc' init --tools claude-code --practices all --force >/dev/null && test -f docs/practices/observability.md"
 check ".mcp.json starts empty — asdlc doesn't opine on which servers" \
@@ -188,6 +191,32 @@ assert all(v == '\\\${' + k + '}' for k, v in d['env'].items())
 check "mcp add prints which env vars atlassian-self-hosted needs" \
   bash -c "cd '$REPO' && NO_COLOR=1 '$VENV/bin/asdlc' mcp add atlassian-self-hosted | grep -q JIRA_PERSONAL_TOKEN"
 check "asdlc mcp remove atlassian-self-hosted" env NO_COLOR=1 "$VENV/bin/asdlc" mcp remove atlassian-self-hosted
+
+check "mcp list shows azure-devops catalog entry" \
+  bash -c "cd '$REPO' && NO_COLOR=1 '$VENV/bin/asdlc' mcp list | grep -q azure-devops"
+check "asdlc mcp add azure-devops" env NO_COLOR=1 "$VENV/bin/asdlc" mcp add azure-devops
+check "azure-devops is a remote (http) entry, not local" \
+  bash -c "cd '$REPO' && NO_COLOR=1 '$VENV/bin/asdlc' mcp list | grep -A1 '^  azure-devops ' | grep -q '\[remote\]'"
+check "azure-devops config uses an env-var placeholder for the org, never a literal one" \
+  bash -c "python3 -c \"
+import json
+d = json.load(open('$REPO/.mcp.json'))['mcpServers']['azure-devops']
+assert d['url'] == 'https://mcp.dev.azure.com/\\\${AZURE_DEVOPS_ORG}'
+\""
+check "asdlc mcp remove azure-devops" env NO_COLOR=1 "$VENV/bin/asdlc" mcp remove azure-devops
+
+check "asdlc mcp add azure-devops-local" env NO_COLOR=1 "$VENV/bin/asdlc" mcp add azure-devops-local
+check "azure-devops-local is a local (npx) entry, not remote/OAuth" \
+  bash -c "cd '$REPO' && NO_COLOR=1 '$VENV/bin/asdlc' mcp list | grep -A1 '^  azure-devops-local ' | grep -q '\[local\]'"
+check "azure-devops-local config uses npx + an env-var placeholder, never a literal org" \
+  bash -c "python3 -c \"
+import json
+d = json.load(open('$REPO/.mcp.json'))['mcpServers']['azure-devops-local']
+assert d['command'] == 'npx'
+assert d['args'] == ['-y', '@azure-devops/mcp', '\\\${AZURE_DEVOPS_ORG}']
+\""
+check "asdlc mcp remove azure-devops-local" env NO_COLOR=1 "$VENV/bin/asdlc" mcp remove azure-devops-local
+
 check "asdlc verify runs on a clean repo" env NO_COLOR=1 "$VENV/bin/asdlc" verify --base main --stage code
 check "python -m asdlc works" env NO_COLOR=1 "$VENV/bin/python" -m asdlc doctor
 

@@ -36,8 +36,9 @@ This repo uses a spec-first, gated workflow. Do not improvise around it.
 1. **No code without a change folder.** Every change lives in
    `{{CHANGES_DIR}}/<change-id>/` with proposal.md, spec.md, design.md, tasks.md.
    Create one with `asdlc new <change-id>` if it does not exist — or start from a
-   Jira ticket with `/jira-import <ticket-key>`, which drafts the change (in the
-   installed SDD's shape) and asks for clarification on the ticket if it's thin.
+   Jira ticket with `/jira-import <ticket-key>`, or an Azure DevOps work item
+   with `/azure-devops-import <work-item-id>`, either of which drafts the
+   change (in the installed SDD's shape) and asks for clarification if it's thin.
 2. **Stop after design.md.** A human reviews and approves the design before you
    write implementation code. Do not skip ahead because the task seems obvious.
 3. **Implement task by task**, ticking `tasks.md` as you go. Before the first
@@ -54,12 +55,13 @@ This repo uses a spec-first, gated workflow. Do not improvise around it.
 ## MCP servers
 Project-scoped MCP servers live in `.mcp.json` (empty by default — most agent
 tools that support MCP read this file). Run `asdlc mcp list` to see asdlc's
-curated catalog (Jira/Confluence, GitHub, Slack, ...) and `asdlc mcp add
-<name>` to wire one up; add only what this repo actually needs, and commit
-the file so every agent gets the same servers. `/implement` picks these up
-automatically once configured — opens the PR via a `github` server, and
-syncs a linked Jira ticket via `atlassian`/`atlassian-self-hosted` — see
-`/implement` for exactly what.
+curated catalog (Jira/Confluence, Azure DevOps, GitHub, Slack, ...) and `asdlc
+mcp add <name>` to wire one up; add only what this repo actually needs, and
+commit the file so every agent gets the same servers. `/implement` picks these
+up automatically once configured — opens the PR via a `github` server, and
+syncs a linked ticket via `atlassian`/`atlassian-self-hosted` (Jira) or
+`azure-devops`/`azure-devops-local` (Azure DevOps) — see `/implement` for
+exactly what.
 
 ## Conventions
 - <!-- 2-4 bullets, load-bearing only: naming, error handling, logging, etc. -->
