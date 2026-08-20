@@ -91,11 +91,11 @@ SDD_CHOICE_BLURB = {
             "Fits teams already using Kiro; skip if you don't use that IDE.",
 }
 
-# Tools that read AGENTS.md natively. claude-code doesn't — it only reads
-# CLAUDE.md — so whether a repo's real context file is AGENTS.md or CLAUDE.md
-# depends on which OTHER tools are also present. Shared by cmd_init (decides
-# which to write) and cmd_doctor (decides which to check for).
-NATIVE_AGENTS_MD_TOOLS = {"codex", "cursor", "copilot"}
+# Whether a repo's real context file is AGENTS.md or CLAUDE.md depends on
+# which tools are present (claude-code doesn't read AGENTS.md — it only reads
+# CLAUDE.md); see Adapter.reads_agents_md for the per-tool fact, set in
+# adapters/registry.py. Used by cmd_init (decides which to write) and
+# cmd_doctor (decides which to check for).
 
 
 def _workflow_note(sdd_choice: str) -> str:
@@ -254,7 +254,7 @@ def cmd_init(args: argparse.Namespace) -> int:
     # two copies. If claude-code is the only tool that needs this content,
     # skip AGENTS.md entirely and write the real content straight into
     # CLAUDE.md — no reason to keep a hub file nothing else reads.
-    has_native_reader = any(t in NATIVE_AGENTS_MD_TOOLS for t in args.tools)
+    has_native_reader = any(adapters.ADAPTERS[t].reads_agents_md for t in args.tools)
     inline_into_claude = "claude-code" in args.tools and not has_native_reader
     context_file = "CLAUDE.md" if inline_into_claude else "AGENTS.md"
 
@@ -449,14 +449,9 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
     print(f"repo: {root}\n")
     changes_dir, specs_dir = _read_artifact_dirs(root)
 
-    detect = {
-        "claude-code": ".claude/commands",
-        "codex": ".codex/prompts",
-        "copilot": ".github/prompts",
-        "cursor": ".cursor/commands",
-    }
+    detect = {name: a.commands_dir for name, a in adapters.ADAPTERS.items() if a.commands_dir}
     detected_tools = [tool for tool, path in detect.items() if (root / path).exists()]
-    has_native_reader = any(t in NATIVE_AGENTS_MD_TOOLS for t in detected_tools)
+    has_native_reader = any(adapters.ADAPTERS[t].reads_agents_md for t in detected_tools)
     inline_into_claude = "claude-code" in detected_tools and not has_native_reader
     context_file = "CLAUDE.md" if inline_into_claude else "AGENTS.md"
 

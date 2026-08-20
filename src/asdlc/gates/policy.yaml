@@ -41,6 +41,11 @@ practices: "%%PRACTICES%%"
 jira_import:
   auto_approve: true
 
+# /azure-devops-import behaviour. Same semantics as jira_import above, for an
+# Azure DevOps work item instead of a Jira ticket.
+azure_import:
+  auto_approve: true
+
 # Where asdlc's own artifact contract lives. Set once by `asdlc init` based on
 # --sdd: openspec/changes+specs when OpenSpec is the front-end (or none is),
 # .asdlc/changes+specs otherwise — avoids calling this directory "openspec"

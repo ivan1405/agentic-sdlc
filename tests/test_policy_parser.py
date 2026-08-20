@@ -15,13 +15,14 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from asdlc.gates.checks import _mini_yaml  # noqa: E402
+from asdlc.yamlish import _mini_yaml  # noqa: E402
 
 yaml = pytest.importorskip("yaml", reason="parity test needs PyYAML as the oracle")
 
 SHIPPED = [
     Path(__file__).parents[1] / "src/asdlc/gates/policy.yaml",
     *sorted((Path(__file__).parents[1] / "src/asdlc/gates/presets").glob("*.yaml")),
+    Path(__file__).parents[1] / "src/asdlc/assets/agents/roles.yaml",
 ]
 
 

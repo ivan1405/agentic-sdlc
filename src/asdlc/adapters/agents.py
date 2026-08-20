@@ -6,7 +6,8 @@ Markdown-with-frontmatter, so it gets its own serializer. Which style a tool
 uses is `Adapter.agent_style` in registry.py; this module renders each style.
 
 Tool/model/permission fields are emitted ONLY where the schema was confirmed
-against a real example (see docs/adapter-verification.md):
+against a real example (see docs/adapter-verification.md and the comment
+header in assets/agents/roles.yaml, which is where those fields now live):
   - "claude": `tools:` (built-in names), `model: inherit`, `color:`.
   - "cursor": `model: inherit`, plus `readonly: true` on review-only roles.
   - "plain" (Copilot): name + description only — its `tools:` vocabulary is
@@ -19,31 +20,9 @@ import re
 from pathlib import Path
 
 from asdlc.adapters.registry import ADAPTERS
-
-ROLES = ["technical-leader", "solutions-architect", "frontend-dev", "backend-dev",
-         "qa-engineer", "security-engineer"]
+from asdlc.adapters.roles import Role, discover_roles
 
 DESC_RE = re.compile(r"^%%DESC:\s*(.+?)%%\s*$", re.M)
-
-# Claude Code — confirmed built-in tool names. Review-only roles get no
-# Edit/Write/Bash; implementer roles get what they actually need to do the job.
-CLAUDE_TOOLS = {
-    "technical-leader": "Read, Grep, Glob",
-    "solutions-architect": "Read, Grep, Glob, Edit, Write, Bash",
-    "frontend-dev": "Read, Grep, Glob, Edit, Write, Bash",
-    "backend-dev": "Read, Grep, Glob, Edit, Write, Bash",
-    "qa-engineer": "Read, Grep, Glob, Edit, Bash",
-    "security-engineer": "Read, Grep, Glob, Bash",
-}
-CLAUDE_COLOR = {
-    "technical-leader": "blue",
-    "solutions-architect": "magenta",
-    "frontend-dev": "cyan",
-    "backend-dev": "green",
-    "qa-engineer": "yellow",
-    "security-engineer": "red",
-}
-CURSOR_READONLY = {"technical-leader", "security-engineer"}
 
 
 def parse(path: Path) -> tuple[str, str]:
@@ -53,13 +32,14 @@ def parse(path: Path) -> tuple[str, str]:
     return desc, body
 
 
-def _frontmatter(style: str, role: str, desc: str) -> str:
-    lines = ["---", f"name: {role}", f"description: {desc}"]
+def _frontmatter(style: str, tool: str, role: Role, desc: str) -> str:
+    lines = ["---", f"name: {role.name}", f"description: {desc}"]
     if style == "claude":
-        lines += [f"tools: {CLAUDE_TOOLS[role]}", "model: inherit", f"color: {CLAUDE_COLOR[role]}"]
+        cfg = role.tools["claude-code"]
+        lines += [f"tools: {cfg['tools']}", "model: inherit", f"color: {cfg['color']}"]
     elif style == "cursor":
         lines.append("model: inherit")
-        if role in CURSOR_READONLY:
+        if role.tools.get("cursor", {}).get("readonly"):
             lines.append("readonly: true")
     lines.append("---")
     return "\n".join(lines) + "\n\n"
@@ -89,13 +69,13 @@ def render_tool_files(tool: str, shared_dir: Path) -> dict[str, str]:
     if adapter.agent_style is None:
         return {}
     files: dict[str, str] = {}
-    for role in ROLES:
-        desc, body = parse(shared_dir / f"{role}.md")
+    for role in discover_roles(shared_dir):
+        desc, body = parse(shared_dir / f"{role.name}.md")
         if adapter.agent_style == "toml":
-            content = _render_codex(role, desc, body)
+            content = _render_codex(role.name, desc, body)
         else:
-            content = _frontmatter(adapter.agent_style, role, desc) + body
-        files[adapter.agent_filename.format(name=role)] = content
+            content = _frontmatter(adapter.agent_style, tool, role, desc) + body
+        files[adapter.agent_filename.format(name=role.name)] = content
     return files
 
 
@@ -106,7 +86,7 @@ def render_generic(shared_dir: Path) -> str:
         "Your client's agent has no custom-subagent support? These are role\n"
         "definitions to paste into whatever persona/system-prompt mechanism it has.\n",
     ]
-    for role in ROLES:
-        desc, body = parse(shared_dir / f"{role}.md")
-        parts.append(f"\n---\n\n## {role}\n\n{desc}\n\n{body}")
+    for role in discover_roles(shared_dir):
+        desc, body = parse(shared_dir / f"{role.name}.md")
+        parts.append(f"\n---\n\n## {role.name}\n\n{desc}\n\n{body}")
     return "\n".join(parts)

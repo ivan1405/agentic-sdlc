@@ -176,6 +176,98 @@ Steps:
 
 ---
 
+## azure-devops-import — Turn an Azure DevOps work item into a drafted change (SDD-aware); tech-lead validates and either drafts or asks for clarification
+
+Usage: `azure-devops-import <work-item-id>`
+
+Import an Azure DevOps work item into a change: <your input here>
+
+Best suited to the **technical-leader** agent, if your tool supports subagent
+delegation — this is a scoping/judgement task: read the work item, decide
+whether it's implementable, and draft (or push back) accordingly. It does
+**not** write code.
+
+Preconditions — verify yourself and refuse if unmet:
+- `.mcp.json`'s `mcpServers` has an `azure-devops` or `azure-devops-local`
+  entry. Without it there's no way to read the work item or comment back —
+  stop and say so (`asdlc mcp add azure-devops`). Exact Azure DevOps MCP tool
+  names vary by version; treat your actual tool list as ground truth over the
+  wording here.
+
+Steps:
+1. **Read work item `<your input here>`** via the Azure DevOps MCP tools — title,
+   description, acceptance criteria, and existing comments. Also read
+   `AGENTS.md` and `.asdlc/policy.yaml`.
+2. **Detect the SDD front-end** from `.asdlc/policy.yaml`'s `sdd` field
+   (`none` / `openspec` / `speckit` / `bmad` / `kiro`). It decides the shape you
+   produce in step 6.
+3. **Validate sufficiency** using the **spec-authoring** skill
+   (`.asdlc/skills/spec-authoring/SKILL.md` — read it now). The bar: from this
+   work item, could you write testable requirements — stable REQ- IDs, SHALL
+   statements, Given/When/Then scenarios **including a failure path** — plus a
+   clear in/out scope and acceptance criteria, and can you tell whether it
+   touches a sensitive surface (auth, payments, PII, a migration, a public API
+   contract, infra)? Do not invent answers to fill gaps.
+4. **If NOT sufficient — ask, don't guess.** Post a work item comment on
+   `<your input here>` (Azure DevOps MCP) listing the *specific* missing information as
+   concrete questions (map each to the spec-authoring interview point it's
+   missing). Do **not** create a change folder. Stop here.
+5. **If sufficient — create the change** in the front-end's own shape, with a
+   change-id derived from the work item: `<work-item-id>-<short-slug-of-title>`.
+   Record the work item ID so `/implement` can sync it back later.
+   - **`sdd: none`** → run `asdlc new <change-id>`, then fill
+     `openspec/changes/<change-id>/` — `proposal.md` (Problem, Outcome, Scope
+     in/out, and the work item ID in the `Ticket:` field), `spec.md` (REQ- IDs,
+     SHALL, Given/When/Then incl. failure paths, the `Capability:` line),
+     `design.md`, and `tasks.md` (each task tagged with its REQ- ID). Run
+     `asdlc verify --stage spec` and fix what it reports.
+   - **`sdd: openspec`** → run `openspec new change <change-id>` and fill
+     OpenSpec's own artifacts from the work item. Implementation later runs
+     through OpenSpec's own apply command, not asdlc's `/implement`.
+   - **`sdd: speckit` / `bmad` / `kiro`** → use that tool's own create flow
+     (e.g. Spec Kit's specify command, BMAD's PRD/story workflow, Kiro's Spec
+     mode) and fill its artifacts from the work item.
+6. **Approval — whenever the change has a `design.md`.** That's always true
+   for `sdd: none`; also true for `sdd: openspec` when OpenSpec's own flow
+   produced one (OpenSpec treats it as optional, but when present it's a real
+   `design.md` at the same path the gates check) and for `sdd: kiro`'s native
+   Spec mode. `sdd: speckit` (`plan.md`) and `sdd: bmad` (`PRD.md`/
+   `architecture.md`) never produce a `design.md` — skip this step for them,
+   there's nothing to sign.
+
+   Read `azure_import.auto_approve` from `.asdlc/policy.yaml` (default `true`).
+   - **`auto_approve: true`** — once the change is complete (`sdd: none`: once
+     `asdlc verify --stage spec` is green; other shapes: once step 3's
+     sufficiency check is satisfied), write an `Approved-by: <name> <email>`
+     trailer into that `design.md`, using this repo's `git config user.name` /
+     `user.email`.
+   - **`auto_approve: false`** — do **not** sign. Post a "spec ready for your
+     approval" comment on the work item and stop; a human signs `design.md`
+     before implementation (`/implement` for `sdd: none`, the front-end's own
+     apply flow otherwise).
+
+   > ⚠️ **`auto_approve: true` deliberately breaks the standard's accountability
+   > boundary.** `standard/03-definition-of-done.md` lists "write its own
+   > `Approved-by:` line" as something an agent must **never** do — a human is
+   > supposed to sign `design.md` before implementation. Auto-signing lets a
+   > well-specified work item flow to implementation unattended, which means
+   > the `human-approval` gate passes on agent authority, **including on
+   > sensitive diffs**. It is on by default per engagement choice; flip
+   > `azure_import.auto_approve` to `false` in `.asdlc/policy.yaml` to restore
+   > the human-in-the-loop behaviour.
+7. **Report on the work item.** Post a comment with the outcome: the change
+   path, whether it was auto-approved, and the next step — `/implement
+   <change-id>` for `sdd: none`, or the front-end's own apply flow otherwise.
+   If (and only if) the work item has a real state transition meaning "in
+   progress" or "ready for review", move it there; never guess a state that
+   isn't an actual transition on that work item.
+8. **Stop.** This command never writes implementation code, never opens a PR,
+   and never merges. It creates (and, for `sdd: none`, may approve) the change;
+   implementation is a separate step.
+
+
+---
+
 ## propose — Turn an idea or ticket into a reviewed change folder (proposal + spec)
 
 Usage: `propose <change-id> [context, ticket link, or description]`
@@ -282,23 +374,31 @@ Then:
    `gh`/git CLI is on PATH. No `github` entry: today's manual flow, unchanged.
    This is pre-authorized — open it yourself, don't ask first, and don't open
    it any earlier than this (not until `asdlc verify` is green).
-10. Jira handoff — only if `proposal.md`'s `Ticket:` field names one **and**
-    `.mcp.json` has an `atlassian` or `atlassian-self-hosted` entry. Once the
-    PR from step 9 is open, use the Atlassian MCP tools to: look at that
-    ticket's available transitions and move it to whichever one means "ready
-    for review" (never guess a status name that isn't an actual transition on
-    that ticket — ask a human if it's genuinely ambiguous), then comment on
-    the ticket with the PR link, saying it's done and ready for review. No
-    `Ticket:` value, or no atlassian* entry: skip this step entirely, nothing
-    to sync.
+10. Ticket handoff — only if `proposal.md`'s `Ticket:` field names one **and**
+    `.mcp.json` has a matching MCP entry for whichever system it's from. Once
+    the PR from step 9 is open:
+    - **Jira** (`Ticket:` is a Jira key, `.mcp.json` has `atlassian` or
+      `atlassian-self-hosted`) — use the Atlassian MCP tools to look at that
+      ticket's available transitions and move it to whichever one means
+      "ready for review", then comment on the ticket with the PR link, saying
+      it's done and ready for review.
+    - **Azure DevOps** (`Ticket:` is a work item ID, `.mcp.json` has
+      `azure-devops` or `azure-devops-local`) — use the Azure DevOps MCP tools
+      to look at that work item's available states and move it to whichever
+      one means "ready for review", then comment on the work item with the PR
+      link, saying it's done and ready for review.
+    In both cases: never guess a status/state name that isn't an actual
+    transition on that ticket/work item — ask a human if it's genuinely
+    ambiguous. No `Ticket:` value, or no matching MCP entry for the system it
+    names: skip this step entirely, nothing to sync.
 11. This step never merges, approves, or skips a gate — it only opens the PR
     and touches the ticket, after `asdlc verify` (step 7, including
     `human-approval`'s named `Approved-by:`) is already green. Never merge
     your own PR, same boundary as always — and never commit or push to `main`
     at any point in this flow.
 
-Exact tool names on the GitHub/Atlassian MCP servers may differ by version —
-treat your actual tool list as ground truth over the wording above.
+Exact tool names on the GitHub/Atlassian/Azure DevOps MCP servers may differ by
+version — treat your actual tool list as ground truth over the wording above.
 
 
 ---

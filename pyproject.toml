@@ -58,6 +58,7 @@ asdlc = [
     "assets/skills/**/SKILL.md",
     "assets/commands/*.md",
     "assets/agents/*.md",
+    "assets/agents/*.yaml",
     "assets/practices/*.md",
     "assets/ci/**/*.yml",
 ]

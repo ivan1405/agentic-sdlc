@@ -40,6 +40,7 @@ ADAPTER_LIST = [
         agent_filename="{name}.toml",
         agent_style="toml",
         skills_dir=".codex/skills",
+        reads_agents_md=True,
     ),
     # Copilot: mode+description frontmatter, ${input:...}. Its `tools:`
     # vocabulary is unverified, so no extra agent fields are emitted.
@@ -53,6 +54,7 @@ ADAPTER_LIST = [
         agent_filename="{name}.agent.md",
         agent_style="plain",
         skills_dir=".github/skills",
+        reads_agents_md=True,
     ),
     # Cursor: description frontmatter; agents get model: inherit and readonly
     # on the two review-only roles (verified fields; no per-tool allow-list).
@@ -66,6 +68,7 @@ ADAPTER_LIST = [
         agent_filename="{name}.md",
         agent_style="cursor",
         skills_dir=".cursor/skills",
+        reads_agents_md=True,
     ),
     # Gemini CLI: custom commands are native TOML in .gemini/commands/ with a
     # `prompt` (+ `description`) key and {{args}} for input. No native agent/

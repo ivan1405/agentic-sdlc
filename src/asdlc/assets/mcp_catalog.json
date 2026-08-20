@@ -22,6 +22,20 @@
       }
     }
   },
+  "azure-devops": {
+    "display": "Azure DevOps (Boards & Repos)",
+    "kind": "remote",
+    "docs": "https://learn.microsoft.com/en-us/azure/devops/mcp-server/remote-mcp-server",
+    "note": "Hosted by Microsoft — no local install. Set AZURE_DEVOPS_ORG to your organization name (the URL embeds it — Azure DevOps doesn't discover the org via OAuth the way Atlassian/GitHub/Slack do here). OAuth in your agent tool on first use. /azure-devops-import and /implement use this automatically to import/sync a linked work item.",
+    "config": {"type": "http", "url": "https://mcp.dev.azure.com/${AZURE_DEVOPS_ORG}"}
+  },
+  "azure-devops-local": {
+    "display": "Azure DevOps (Boards & Repos, local via npx)",
+    "kind": "local",
+    "docs": "https://github.com/microsoft/azure-devops-mcp",
+    "note": "Same Azure DevOps Services (cloud) backend as `azure-devops` — this only changes which machine runs the MCP server, not which Azure DevOps you're talking to. There is no on-prem/Azure DevOps Server (TFS) variant of this server; Microsoft has explicitly declined to add one (see microsoft/azure-devops-mcp#993). Runs locally via npx (needs Node.js 20+ on PATH); authenticates via Azure CLI (`az login`) by default — see the docs for other auth options. Prefer `azure-devops` (the hosted server) unless your network blocks arbitrary MCP endpoints or you'd rather reuse an already-authenticated `az` session.",
+    "config": {"command": "npx", "args": ["-y", "@azure-devops/mcp", "${AZURE_DEVOPS_ORG}"]}
+  },
   "github": {
     "display": "GitHub",
     "kind": "remote",
