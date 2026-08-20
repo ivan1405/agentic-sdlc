@@ -36,6 +36,13 @@
     "note": "Same Azure DevOps Services (cloud) backend as `azure-devops` — this only changes which machine runs the MCP server, not which Azure DevOps you're talking to. There is no on-prem/Azure DevOps Server (TFS) variant of this server; Microsoft has explicitly declined to add one (see microsoft/azure-devops-mcp#993). Runs locally via npx (needs Node.js 20+ on PATH); authenticates via Azure CLI (`az login`) by default — see the docs for other auth options. Prefer `azure-devops` (the hosted server) unless your network blocks arbitrary MCP endpoints or you'd rather reuse an already-authenticated `az` session.",
     "config": {"command": "npx", "args": ["-y", "@azure-devops/mcp", "${AZURE_DEVOPS_ORG}"]}
   },
+  "codegraph": {
+    "display": "Code Knowledge Graph (CodeGraphContext)",
+    "kind": "local",
+    "docs": "https://github.com/CodeGraphContext/CodeGraphContext",
+    "note": "MIT. Runs locally via uvx (needs uv on PATH: https://astral.sh/uv) — no separate database to install, FalkorDB Lite (embedded) is the default backend and nothing leaves this machine. Indexes the repo into a queryable code graph (callers, call chains, class hierarchies, dead code) exposed as MCP tools. /onboard offers to add this and index the repo on first use; /design and the regression-triage skill query it for blast-radius analysis once it's connected, falling back to git grep otherwise. Run `uvx --from codegraphcontext cgc --help` and `cgc mcp tools` first and go by their actual output, not by memory — tool names and flags drift from docs.",
+    "config": {"command": "uvx", "args": ["--from", "codegraphcontext", "cgc", "mcp", "start"]}
+  },
   "github": {
     "display": "GitHub",
     "kind": "remote",

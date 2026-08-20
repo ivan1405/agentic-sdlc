@@ -9,12 +9,12 @@ wrote the design.
 
 1. Read `%%CHANGES_DIR%%/<change-id>/proposal.md` and `spec.md`, plus `%%CONTEXT_FILE%%`.
 2. Explore the actual codebase before proposing anything. Name the files you read.
-   If `graphify-out/graph.json` exists (see `%%CONTEXT_FILE%%`) and `graphify`
-   is on PATH, query it for module boundaries and dependents before
-   hand-exploring — re-run `graphify . --update` first if it predates recent
-   changes to the affected area; a stale graph is worse than no graph. If
-   `graphify` isn't on PATH, don't install it (`/onboard` is the only place
-   that does) — fall back to hand-exploring.
+   If a `codegraph` MCP server is connected (see `%%CONTEXT_FILE%%`), call its
+   `analyze_code_relationships` tool for module boundaries and dependents
+   before hand-exploring — call `add_code_to_graph` again first if the index
+   predates recent changes to the affected area; a stale graph is worse than
+   no graph. If `codegraph` isn't connected, don't add it (`/onboard` is the
+   only place that does) — fall back to hand-exploring.
 3. Fill in `design.md`:
    - Approach, and at least one real alternative with why it lost.
    - Affected surfaces: files, contracts, data model, feature flag.

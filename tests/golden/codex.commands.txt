@@ -103,6 +103,38 @@ Steps:
    and never merges. It creates (and, for `sdd: none`, may approve) the change;
    implementation is a separate step.
 
+===== codegraph.md =====
+<!-- Build or refresh the code knowledge graph and open its visualizer | usage: /codegraph [optional: path or area to focus on] -->
+
+Build or refresh the code knowledge graph: $ARGUMENTS
+
+This is the maintenance command for the `codegraph` MCP server (CodeGraphContext)
+that `/onboard` first offers to add. Use it any time the graph is stale or you
+just want to look at it — it doesn't touch the context file or re-run the rest
+of onboarding.
+
+1. Confirm the `codegraph` MCP server is connected (an `mcp__codegraph__*`
+   tool in your tool list). If it isn't, tell the user to run `asdlc mcp add
+   codegraph` and reconnect/restart their agent tool, then stop — don't add
+   it yourself, `/onboard` is the only place that does that.
+2. Call `add_code_to_graph` against `.` (or the path from $ARGUMENTS, if given)
+   to index the repo, or refresh it if it's already indexed — check
+   `list_indexed_repositories`/`get_repository_stats` first so you know which
+   case you're in. Indexing returns a job ID; poll `check_job_status` until
+   it finishes before moving on. Only force a from-scratch rebuild if the
+   user asks for one.
+3. Ask the user: *"Want to open the graph visualizer in your browser?"*
+   - If no, stop here — the graph is built/refreshed, nothing else to do.
+   - If yes, `cgc visualize` starts a local web server (default
+     `http://127.0.0.1:8000`, override with `--repo`/`--host`/`--port`) and
+     does not return control on its own — run it as a background process,
+     never in the foreground, or it blocks this session.
+   - Only hand the user the URL once the server is actually listening — a
+     link nothing answers on yet is worse than no link (that's the dead-link
+     failure mode this command exists to avoid).
+   - Tell the user it keeps running until they stop it, and how to stop the
+     background process when they're done.
+
 ===== design.md =====
 <!-- Produce the technical design for an approved spec, then stop for human review | usage: /design <change-id> -->
 
@@ -115,12 +147,12 @@ wrote the design.
 
 1. Read `openspec/changes/<change-id>/proposal.md` and `spec.md`, plus `AGENTS.md`.
 2. Explore the actual codebase before proposing anything. Name the files you read.
-   If `graphify-out/graph.json` exists (see `AGENTS.md`) and `graphify`
-   is on PATH, query it for module boundaries and dependents before
-   hand-exploring — re-run `graphify . --update` first if it predates recent
-   changes to the affected area; a stale graph is worse than no graph. If
-   `graphify` isn't on PATH, don't install it (`/onboard` is the only place
-   that does) — fall back to hand-exploring.
+   If a `codegraph` MCP server is connected (see `AGENTS.md`), call its
+   `analyze_code_relationships` tool for module boundaries and dependents
+   before hand-exploring — call `add_code_to_graph` again first if the index
+   predates recent changes to the affected area; a stale graph is worse than
+   no graph. If `codegraph` isn't connected, don't add it (`/onboard` is the
+   only place that does) — fall back to hand-exploring.
 3. Fill in `design.md`:
    - Approach, and at least one real alternative with why it lost.
    - Affected surfaces: files, contracts, data model, feature flag.
@@ -300,33 +332,43 @@ every time. Do not repeat this skim on every future command.
 1. Find the context file — `AGENTS.md`, or `CLAUDE.md` if this repo has no
    separate `AGENTS.md`. If it has no unfilled `<!-- TODO -->`/placeholder
    sections left, stop and ask before overwriting anything.
-2. Check for a code knowledge graph. If `graphify-out/graph.json` already
-   exists, skip straight to step 3 and read `graphify-out/GRAPH_REPORT.md`
-   alongside your skim. Otherwise ask: *"Want me to install Graphify
-   (https://graphify.com, Apache-2.0, local AST parsing — nothing leaves this
-   machine) and build a code knowledge graph before I skim?"* Skip to step 3
-   on no, or if this is a small/single-file repo where a graph adds nothing.
-   - If yes and `graphify` isn't on PATH, tell the user to install it
-     (`uv tool install graphifyy` or `pipx install graphifyy`, needs Python
-     3.10+) and stop here — don't install packages on their behalf.
-   - Run `graphify --help` and `graphify install --help` first and go by
-     their actual output, not by memory — its flags have drifted from its
-     own docs before (see
-     [safishamsi/graphify#514](https://github.com/safishamsi/graphify/issues/514)).
-     Then run `graphify install --project`, adding `--platform <id>` if this
-     tool isn't Claude Code (bare `install` targets Claude Code by default).
-   - Invoke the skill it just registered against `.` to build the graph
-     (`--mode deep` for a large or unfamiliar codebase). Output lands in
-     `graphify-out/` — add that directory to `.gitignore` if it isn't
-     already; it's a derived index, not something to commit.
-   - Note in the context file that the graph exists and how to refresh it
-     (`graphify . --update`). This pass doesn't keep it fresh going forward.
+2. Check for a code knowledge graph. If a `codegraph` MCP server is already
+   connected (an `mcp__codegraph__*` tool is in your tool list), skip
+   straight to step 3 and call its `generate_report` tool for the module map
+   alongside your skim. Otherwise ask: *"Want me to add the code knowledge
+   graph MCP server (CodeGraphContext,
+   https://github.com/CodeGraphContext/CodeGraphContext, MIT, local AST
+   parsing — nothing leaves this machine) and index this repo before I
+   skim?"* Skip to step 3 on no, or if this is a small/single-file repo where
+   a graph adds nothing.
+   - If yes, run `asdlc mcp add codegraph`. This writes the server into
+     `.mcp.json` but does not connect it in the current session — tell the
+     user their agent tool needs a reconnect/restart before its tools show
+     up, and stop here.
+   - Once connected, call `cgc mcp tools` (or list your own tools) and go by
+     their actual names, not by memory — tool names and flags drift from
+     docs. Call `add_code_to_graph` against `.` to index the repo — it
+     returns a job ID; poll `check_job_status` until it finishes (a large or
+     unfamiliar codebase can take a while).
+   - Call `generate_report` for the module map instead of re-deriving it by
+     hand.
+   - Ask the user: *"Want to open the graph visualizer in your browser?"* If
+     yes, run `cgc visualize` as a background process — it starts a local
+     server (default `http://127.0.0.1:8000`) and does not return control on
+     its own — and only give them that URL once it's actually listening; a
+     link to a port nothing answers on yet is worse than no link. `/codegraph`
+     re-runs this index-then-visualize pair later without repeating the rest
+     of onboarding.
+   - Note in the context file that the graph exists via the `codegraph` MCP
+     server and how to refresh it (`add_code_to_graph` again, or `cgc hook
+     install` so Git hooks keep it in sync automatically — unlike a one-off
+     build, this one can stay current going forward).
 3. Skim, don't exhaustively read: package manifests (`package.json`,
    `pyproject.toml`, `go.mod`, ...), the top-level directory layout, README,
    CI config, and existing tests. Pull real versions and real commands from
    these — do not guess or invent plausible-sounding ones. Lean on
-   `graphify-out/GRAPH_REPORT.md` for the module map if step 2 built one,
-   instead of re-deriving it by hand.
+   the `codegraph` MCP server's `generate_report` output for the module map
+   if step 2 connected one, instead of re-deriving it by hand.
 4. Fill in the context file itself — keep it short, this is always-loaded
    context, not documentation:
    - **What this is** — one paragraph, grounded in the README/manifest.
