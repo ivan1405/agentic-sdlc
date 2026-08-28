@@ -24,6 +24,10 @@ wrote the design.
      `git grep` / `git log` blast-radius commands; do not guess at callers.
    - Test strategy — use the **test-strategy** skill.
    - Rollout, rollback, observability.
+   - **Diagram (optional)** — if the `archify` skill is installed, run
+     `/diagram architecture: <affected subsystem>` and link the resulting
+     HTML from design.md. If it isn't installed, skip silently — `/onboard`
+     is the only place that offers to add it.
 4. Write an ADR in `docs/adr/` if you made an architectural decision.
 5. Stop. A human reviews and signs `Approved-by:` in design.md. **This is a hard
    gate — do not begin implementation, not even scaffolding.**

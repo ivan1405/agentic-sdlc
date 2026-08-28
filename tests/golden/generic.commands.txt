@@ -91,6 +91,21 @@ every time. Do not repeat this skim on every future command.
    never write policy.yaml yourself.
 8. Do not touch `proposal.md`/`spec.md`/`design.md`/`tasks.md` or any change
    folder. This command is about context, not a change.
+9. Last step, once everything above is done: ask *"Want me to generate an
+   interactive architecture diagram of this repo now (via the Archify
+   skill, tt-a1i/archify, MIT)?"*
+   - If yes and the `archify` skill isn't already installed, run
+     `npx skills add tt-a1i/archify -g` (or without `-g` for a project-local
+     install) yourself — this is the one place that installs it, no need to
+     ask the user to run it. Skills are plain files, not a registered tool,
+     so you can read the installed `SKILL.md` and follow it right away with
+     no restart needed.
+   - Then produce one bounded `architecture` diagram of the runtime
+     components discovered in this skim — 8–12 core components, one primary
+     path, external dependencies, trust boundaries. Link it from
+     `docs/architecture.md` if step 5 wrote one.
+   - If no, tell the user they can generate it any time later by running
+     `/diagram`.
 
 
 ---
@@ -127,6 +142,43 @@ of onboarding.
      failure mode this command exists to avoid).
    - Tell the user it keeps running until they stop it, and how to stop the
      background process when they're done.
+
+
+---
+
+## diagram — Generate or refresh a validated, interactive architecture/workflow/sequence/data-flow/lifecycle diagram with the archify skill
+
+Usage: `diagram [optional: diagram type and/or scope, e.g. "architecture: auth service"]`
+
+Diagram <your input here>
+
+This is the maintenance command for the `archify` skill (tt-a1i/archify, MIT)
+that `/onboard` first offers to add. Use it any time you want a fresh diagram,
+or an existing one needs to reflect recent code changes — it doesn't touch the
+context file or re-run the rest of onboarding.
+
+1. Confirm the `archify` skill is installed — its `SKILL.md` should show up
+   in your skill list. If it isn't, tell the user to run
+   `npx skills add tt-a1i/archify -g` (or without `-g` for a project-local
+   install) and reconnect/restart their agent tool, then stop — don't install
+   it yourself, `/onboard` is the only place that does that.
+2. Work out scope from `<your input here>` (ask, if empty): which diagram type —
+   `architecture`, `workflow`, `sequence`, `dataflow`, or `lifecycle` — and
+   what part of the system. If it's ambiguous, run the skill's own
+   `guide "<scenario>"` command rather than guessing the type yourself.
+3. When the diagram must reflect real code rather than a proposed design,
+   explore the actual repository first — read the relevant source, or call a
+   `codegraph` MCP server's `analyze_code_relationships` if one is connected
+   (refresh the index first if it predates recent changes to the affected
+   area). If neither is available, fall back to hand-exploring; never invent
+   components or relationships that aren't in the code.
+4. Follow the archify skill's own fast authoring path: author the typed JSON
+   IR, `validate --quality showcase`, then `deliver` once for the final HTML.
+   A non-zero exit is never success — repair only the diagnosed subject and
+   re-run, don't guess at geometry.
+5. Tell the user the delivered HTML's path and offer `visual-check` before
+   handing it over if they want confirmation it renders cleanly on a real
+   screen. Save it under `docs/` unless the user names another location.
 
 
 ---
@@ -371,6 +423,10 @@ wrote the design.
      `git grep` / `git log` blast-radius commands; do not guess at callers.
    - Test strategy — use the **test-strategy** skill.
    - Rollout, rollback, observability.
+   - **Diagram (optional)** — if the `archify` skill is installed, run
+     `/diagram architecture: <affected subsystem>` and link the resulting
+     HTML from design.md. If it isn't installed, skip silently — `/onboard`
+     is the only place that offers to add it.
 4. Write an ADR in `docs/adr/` if you made an architectural decision.
 5. Stop. A human reviews and signs `Approved-by:` in design.md. **This is a hard
    gate — do not begin implementation, not even scaffolding.**

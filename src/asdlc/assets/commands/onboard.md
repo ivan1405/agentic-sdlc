@@ -80,3 +80,18 @@ every time. Do not repeat this skim on every future command.
    never write policy.yaml yourself.
 8. Do not touch `proposal.md`/`spec.md`/`design.md`/`tasks.md` or any change
    folder. This command is about context, not a change.
+9. Last step, once everything above is done: ask *"Want me to generate an
+   interactive architecture diagram of this repo now (via the Archify
+   skill, tt-a1i/archify, MIT)?"*
+   - If yes and the `archify` skill isn't already installed, run
+     `npx skills add tt-a1i/archify -g` (or without `-g` for a project-local
+     install) yourself — this is the one place that installs it, no need to
+     ask the user to run it. Skills are plain files, not a registered tool,
+     so you can read the installed `SKILL.md` and follow it right away with
+     no restart needed.
+   - Then produce one bounded `architecture` diagram of the runtime
+     components discovered in this skim — 8–12 core components, one primary
+     path, external dependencies, trust boundaries. Link it from
+     `docs/architecture.md` if step 5 wrote one.
+   - If no, tell the user they can generate it any time later by running
+     `/diagram`.
