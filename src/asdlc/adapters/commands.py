@@ -12,7 +12,7 @@ from pathlib import Path
 
 from asdlc.adapters.registry import ADAPTERS
 
-ORDER = ["onboard", "codegraph", "jira-import", "azure-devops-import", "propose",
+ORDER = ["onboard", "codegraph", "diagram", "jira-import", "azure-devops-import", "propose",
          "design", "implement", "verify", "archive"]
 
 DESC_RE = re.compile(r"^%%DESC:\s*(.+?)%%\s*$", re.M)

@@ -52,7 +52,7 @@ src/asdlc/assets/           the payload asdlc init reads/renders into a client r
   templates/kiro/             Kiro's steering docs — the one SDD methodology with no CLI to shell out to
   skills/                     5 portable SKILL.md packs, copied into each SKILL.md-reading tool's skills dir
   practices/                  15 vendor-neutral practice docs (8 core + 7 domain), installed into docs/practices/
-  commands/                   the workflow, written once — onboard/jira-import/propose/design/implement/verify/archive
+  commands/                   the workflow, written once — onboard/diagram/jira-import/propose/design/implement/verify/archive
   agents/                     6 role definitions — technical-leader, solutions-architect, frontend-dev,
                                backend-dev, qa-engineer, security-engineer — written once, rendered per tool
                                (Codex's is TOML, not Markdown)
@@ -66,6 +66,32 @@ tests/                      proof that each gate blocks what it claims to, and t
 Everything under `assets/` ships **inside** the package. If a file the CLI reads
 at runtime is not listed in `pyproject.toml`'s `package-data`, it does not exist
 once installed — `tests/test_packaging.sh` is what enforces that.
+
+## Commands
+
+The workflow is written once in `assets/commands/` and rendered into each
+tool's native slash-command format (see [Portability](#portability)). Six
+files are the core lifecycle, run in order per change; the rest are on-demand.
+
+**Core lifecycle**
+
+| Command | What it does |
+|---|---|
+| `/onboard` | One-time repo skim that fills in the context file, wires up optional extras (`codegraph`, an Archify diagram), and writes `docs/architecture.md` if no SDD front-end already owns it. |
+| `/propose` | Turns an idea or ticket into a reviewed change folder — proposal + spec. |
+| `/design` | Produces the technical design for an approved spec, then stops for human review — a hard gate, never self-approved. |
+| `/implement` | Implements an approved change, task by task, against the spec. |
+| `/verify` | Runs the gates and fixes what they report — honestly. |
+| `/archive` | Folds a merged change into the living spec and archives the change folder. |
+
+**On-demand**
+
+| Command | What it does |
+|---|---|
+| `/codegraph` | Builds or refreshes the code knowledge graph and opens its visualizer — [CodeGraphContext](https://github.com/CodeGraphContext/CodeGraphContext), not vendored, added by `/onboard`. |
+| `/diagram` | Generates or refreshes a validated, interactive architecture/workflow/sequence/data-flow/lifecycle diagram — [Archify](https://github.com/tt-a1i/archify), not vendored, added by `/onboard`. |
+| `/jira-import <ticket-key>` | Turns a Jira ticket into a drafted change; the technical-leader validates it before drafting (or asks for clarification instead). |
+| `/azure-devops-import <work-item-id>` | Same, for an Azure DevOps work item. |
 
 ## The gates
 
@@ -142,6 +168,14 @@ real example, and when. Skills are copied,
 not shared — pick two SKILL.md-reading tools and the 5 packs land twice, once per
 tool's own dir, so each tool's native discovery works without an indirection to
 chase. (Gemini CLI and Windsurf have no SKILL.md support, so they get none.)
+
+Not every skill is vendored, either — same rule as the MCP catalog below:
+point at a vendor's own tool instead of forking it. `/onboard`'s last step
+optionally installs [Archify](https://github.com/tt-a1i/archify) (MIT), a
+third-party skill that turns a typed spec into a validated, interactive
+HTML architecture/workflow/sequence/data-flow/lifecycle diagram — `asdlc`
+runs `npx skills add tt-a1i/archify -g` itself once the user opts in, and
+`/diagram` regenerates or refreshes the result any time afterward.
 
 Context uses the standards, not our inventions: **AGENTS.md** (Linux Foundation's
 Agentic AI Foundation, read by 20+ tools, 60k+ repos) and **SKILL.md** (open
